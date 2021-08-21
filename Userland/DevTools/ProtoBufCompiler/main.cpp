@@ -227,6 +227,7 @@ void parse_field(GenericLexer& lexer, Message& message)
 }
 void parse_message(GenericLexer& lexer, NonnullOwnPtrVector<Message>& messages)
 {
+    // FIXME: support packages (aka cpp namespaces)
     if (lexer.consume_specific("message"sv)) {
         Message& message = *new Message();
         consume_whitespace(lexer);
@@ -250,6 +251,7 @@ void write_header(SourceGenerator& generator)
     generator.append(R"~~~(
 #include <AK/Base64.h>
 #include <AK/ByteBuffer.h>
+#include <AK/Format.h>
 #include <AK/JsonObject.h>
 #include <AK/MemoryStream.h>
 #include <AK/ProtoBufTypes.h>
@@ -317,6 +319,7 @@ void write_fields(SourceGenerator& generator, Vector<Field> const& fields)
 void write_reader(SourceGenerator& generator, Message const& message)
 {
     generator.append(R"~~~(
+#ifndef KERNEL
     static @message.name@ read_from_stream(InputStream& stream)
     {
         @message.name@ message {};
@@ -524,7 +527,32 @@ void write_reader(SourceGenerator& generator, Message const& message)
         }
         return message;
     }
+#endif
 )~~~"sv);
+}
+
+void write_raw_array_reader(SourceGenerator& generator, Message const& message)
+{
+    generator.append(R"~~~(
+#ifndef KERNEL
+    static Vector<@message.name@> read_raw_array_from_stream(InputStream& stream)
+    {
+        Vector<@message.name@> messages {};
+        while (!stream.unreliable_eof()) {
+            auto maybe_size = VarInt<size_t>::read_from_stream(stream);
+            if(!maybe_size) {
+                warnln("Malformed input-stream, eof while reading size");
+                VERIFY_NOT_REACHED();
+            }
+            size_t object_size = maybe_header.release_value();
+            // FIXME: get rid of this extra allocation
+            u8* buffer = malloc(object_size);
+            Vector.append(read_from_stream(InputMemoryStream {buffer, object_size}));
+        }
+        return messages;
+    }
+#endif
+)~~~");
 }
 
 void write_size_estimator(SourceGenerator& generator, Message const& message)
@@ -533,7 +561,7 @@ void write_size_estimator(SourceGenerator& generator, Message const& message)
     size_t estimate_size() const
     {
         size_t estimate = 0;
-        size_t temp;
+        size_t temp [[maybe_unused]];
         )~~~"sv);
     for (auto const& field : message.fields) {
         auto field_generator = generator.fork();
@@ -647,7 +675,7 @@ void write_size_estimator(SourceGenerator& generator, Message const& message)
             }
         }
     }
-    generator.append("}\n"sv);
+    generator.append("    return estimate;\n    }\n"sv);
 }
 
 void write_writer(SourceGenerator& generator, Message const& message)
@@ -764,6 +792,21 @@ void write_writer(SourceGenerator& generator, Message const& message)
     })~~~"sv);
 }
 
+void write_raw_array_writer(SourceGenerator& generator, Message const& message)
+{
+    generator.append(R"~~~(
+    static size_t write_raw_array_to_stream(Vector<@message.name@> const& messages, OutputStream& stream)
+    {
+        size_t bytes_written = 0;
+        for(auto const& message : messages) {
+            bytes_written += message.estimate_size();
+            bytes_written += message.write_to_stream(stream);
+        }
+        return bytes_written;
+    }
+    )~~~");
+}
+
 void write_json_writer(SourceGenerator& generator, Message const& message)
 {
     generator.append(R"~~~(
@@ -868,8 +911,10 @@ void write_messages(SourceGenerator& generator, NonnullOwnPtrVector<Message> con
         write_messages(message_generator, message.messages);
         write_fields(message_generator, message.fields);
         write_reader(message_generator, message);
+        write_raw_array_reader(message_generator, message);
         write_size_estimator(message_generator, message);
         write_writer(message_generator, message);
+        write_raw_array_writer(message_generator, message);
         write_json_writer(message_generator, message);
         generator.append("};\n"sv);
     }

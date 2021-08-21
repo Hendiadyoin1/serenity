@@ -15,3 +15,4 @@ NamespaceIndentation: None
 Language: Proto
 BasedOnStyle: Google
 IndentWidth: 4
+AlignConsecutiveAssignments: true

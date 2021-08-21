@@ -4,9 +4,11 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/BuilderStream.h>
 #include <AK/JsonArraySerializer.h>
 #include <AK/JsonObjectSerializer.h>
 #include <AK/JsonValue.h>
+#include <Kernel/API/ProcFSProtocol.h>
 #include <Kernel/Arch/x86/InterruptDisabler.h>
 #include <Kernel/FileSystem/Custody.h>
 #include <Kernel/FileSystem/ProcFS.h>
@@ -145,8 +147,8 @@ KResult Process::procfs_get_unveil_stats(KBufferBuilder& builder) const
     for (auto& unveiled_path : unveiled_paths()) {
         if (!unveiled_path.was_explicitly_unveiled())
             continue;
-        auto obj = array.add_object();
-        obj.add("path", unveiled_path.path());
+        Unveil unveil {};
+        unveil.path = unveiled_path.path();
         StringBuilder permissions_builder;
         if (unveiled_path.permissions() & UnveilAccess::Read)
             permissions_builder.append('r');
@@ -158,7 +160,9 @@ KResult Process::procfs_get_unveil_stats(KBufferBuilder& builder) const
             permissions_builder.append('c');
         if (unveiled_path.permissions() & UnveilAccess::Browse)
             permissions_builder.append('b');
-        obj.add("permissions", permissions_builder.to_string());
+        unveil.permissions = permissions_builder.to_string();
+        auto obj = array.add_object();
+        unveil.write_to_json(obj);
     }
     array.finish();
     return KSuccess;
@@ -188,18 +192,23 @@ KResult Process::procfs_get_fds_stats(KBufferBuilder& builder) const
             count++;
             return;
         }
+        Fd fd_entry {};
+
         bool cloexec = file_description_metadata.flags() & FD_CLOEXEC;
         RefPtr<FileDescription> description = file_description_metadata.description();
+        fd_entry.fd = count;
+        fd_entry.absolute_path = description->absolute_path();
+        fd_entry.seekable = description->file().is_seekable();
+        fd_entry.class_ = description->file().class_name();
+        fd_entry.offset = description->offset();
+        fd_entry.cloexec = cloexec;
+        fd_entry.blocking = description->is_blocking();
+        fd_entry.can_read = description->can_read();
+        fd_entry.can_write = description->can_write();
+
         auto description_object = array.add_object();
-        description_object.add("fd", count);
-        description_object.add("absolute_path", description->absolute_path());
-        description_object.add("seekable", description->file().is_seekable());
-        description_object.add("class", description->file().class_name());
-        description_object.add("offset", description->offset());
-        description_object.add("cloexec", cloexec);
-        description_object.add("blocking", description->is_blocking());
-        description_object.add("can_read", description->can_read());
-        description_object.add("can_write", description->can_write());
+        fd_entry.write_to_stream(description_object);
+
         count++;
     });
 
@@ -215,25 +224,25 @@ KResult Process::procfs_get_virtual_memory_stats(KBufferBuilder& builder) const
         for (auto& region : address_space().regions()) {
             if (!region->is_user() && !Process::current()->is_superuser())
                 continue;
-            auto region_object = array.add_object();
-            region_object.add("readable", region->is_readable());
-            region_object.add("writable", region->is_writable());
-            region_object.add("executable", region->is_executable());
-            region_object.add("stack", region->is_stack());
-            region_object.add("shared", region->is_shared());
-            region_object.add("syscall", region->is_syscall_region());
-            region_object.add("purgeable", region->vmobject().is_anonymous());
+            Region region_entry {};
+            region_entry.readable = region->is_readable();
+            region_entry.writable = region->is_writable();
+            region_entry.executable = region->is_executable();
+            region_entry.stack = region->is_stack();
+            region_entry.shared = region->is_shared();
+            region_entry.syscall = region->is_syscall_region();
+            region_entry.purgeable = region->vmobject().is_anonymous();
             if (region->vmobject().is_anonymous()) {
-                region_object.add("volatile", static_cast<Memory::AnonymousVMObject const&>(region->vmobject()).is_volatile());
+                region_entry.volatile_ = static_cast<Memory::AnonymousVMObject const&>(region->vmobject()).is_volatile();
             }
-            region_object.add("cacheable", region->is_cacheable());
-            region_object.add("address", region->vaddr().get());
-            region_object.add("size", region->size());
-            region_object.add("amount_resident", region->amount_resident());
-            region_object.add("amount_dirty", region->amount_dirty());
-            region_object.add("cow_pages", region->cow_pages());
-            region_object.add("name", region->name());
-            region_object.add("vmobject", region->vmobject().class_name());
+            region_entry.cacheable = region->is_cacheable();
+            region_entry.address = region->vaddr().get();
+            region_entry.size = region->size();
+            region_entry.amount_resident = region->amount_resident();
+            region_entry.amount_dirty = region->amount_dirty();
+            region_entry.cow_pages = region->cow_pages();
+            region_entry.name = region->name();
+            region_entry.vmobject = region->vmobject().class_name();
 
             StringBuilder pagemap_builder;
             for (size_t i = 0; i < region->page_count(); ++i) {
@@ -245,7 +254,9 @@ KResult Process::procfs_get_virtual_memory_stats(KBufferBuilder& builder) const
                 else
                     pagemap_builder.append('P');
             }
-            region_object.add("pagemap", pagemap_builder.to_string());
+            region_entry.pagemap = pagemap_builder.to_string();
+            auto region_object = array.add_object();
+            region_entry.write_to_json(region_object);
         }
     }
     array.finish();

@@ -30,10 +30,10 @@ enum class WireType {
 
 template<typename T>
 requires(sizeof(T) == 4 || sizeof(T) == 8) struct FixedSizeType {
-    static Optional<ReturnType> read_from_stream(InputStream& stream)
+    static Optional<T> read_from_stream(InputStream& stream)
     {
-        u8 buffer[sizeof(T) * 8];
-        size_t bytes_read = stream.read(buffer);
+        u8 buffer[sizeof(T)];
+        size_t bytes_read = stream.read(Bytes { buffer, sizeof(T) });
         if (bytes_read != sizeof(T) * 8)
             return {};
 
@@ -47,7 +47,7 @@ requires(sizeof(T) == 4 || sizeof(T) == 8) struct FixedSizeType {
 
 template<Integral T>
 struct VarInt {
-    using BitSize = sizeof(T) * 8u;
+    static constexpr u8 BitSize = (sizeof(T) * 8u);
     static constexpr size_t size(T value)
     {
         return (size_t)ceil_div((MakeUnsigned<T>)value, 128u);
@@ -56,12 +56,12 @@ struct VarInt {
     {
         T result = 0;
         bool read_further = true;
-        u8[1] datum;
+        u8 datum;
         // FIXME: Are we allowed to read more than the specified type?
-        while (stream.read(datum) == 1 && read_further) {
-            read_further = datum >> (BitSize - 1);
+        while (stream.read({ &datum, 1 }) == 1 && read_further) {
+            read_further = datum & 0x80u;
             result <<= 7;
-            result |= (datum & ~(1u << (BitSize - 1u)));
+            result |= datum & 0x70u;
         }
 
         // Hit EOF
@@ -86,6 +86,38 @@ struct VarInt {
     }
 };
 
+template<>
+struct VarInt<bool> {
+    static constexpr u8 BitSize = 1u;
+    static constexpr size_t size(bool)
+    {
+        return 1u;
+    }
+    static Optional<bool> read_from_stream(InputStream& stream)
+    {
+        u8 datum;
+        // FIXME: Are we allowed to read more than the specified type?
+        u8 read = stream.read({ &datum, 1 });
+        VERIFY(read == 1);
+        if (datum & 0x8) {
+            dbgln("bool of size > 1");
+            VERIFY_NOT_REACHED();
+        }
+        if (datum > 1) {
+            dbgln("bool of value > 1");
+            VERIFY_NOT_REACHED();
+        }
+        return (bool)datum;
+    }
+    static size_t write_to_stream(bool value, OutputStream& stream)
+    {
+        u8 datum = (u8)value;
+        size_t bytes_written = 0;
+        bytes_written += stream.write({ &datum, 1 });
+        return bytes_written;
+    }
+};
+
 template<Signed T>
 struct SignedVarInt : VarInt<T> {
     // Zig-Zag encoded signed Integer
@@ -101,19 +133,19 @@ struct SignedVarInt : VarInt<T> {
     }
     static constexpr T to_zig_zag(T value)
     {
-        return ((MakeUnsigned<T>)value << 1u) ^ ((MakeUnsigned<T>)value >> (BitSize - 1u));
+        return ((MakeUnsigned<T>)value << 1u) ^ ((MakeUnsigned<T>)value >> (VarInt<T>::BitSize - 1u));
     }
 
-    static Optional<T> read_from_stream(InputStream& stream) const
+    static Optional<T> read_from_stream(InputStream& stream)
     {
-        auto maybe_value = VarInt::read_from_stream(stream);
+        auto maybe_value = VarInt<T>::read_from_stream(stream);
         if (maybe_value)
             return from_zig_zag(maybe_value.value());
         return {};
     }
     static size_t write_to_stream(T value, OutputStream& stream)
     {
-        return VarInt<T>::write_to_stream(to_zig_zag(value);, stream);
+        return VarInt<T>::write_to_stream(to_zig_zag(value), stream);
     }
 };
 
@@ -142,14 +174,14 @@ struct LengthDelimited {
 };
 
 template<Integral T>
-size_t write_VarInt_array(size_t field_number, Vector<T> const& values, OutputStream& stream)
+inline size_t write_VarInt_array(size_t field_number, Vector<T> const& values, OutputStream& stream)
 {
     // FIXME: This is not the efficient way I guess
     size_t bytes_written = 0;
     bytes_written += VarInt<size_t>::write_to_stream((field_number << 3) | (u8)WireType::LengthDelimited, stream);
     size_t bytes_needed = 0;
     for (auto value : values) {
-            bytes_needed += ceil_div((MakeUnsigned<T>)value), 128u);
+        bytes_needed += ceil_div((MakeUnsigned<T>)value, 128u);
     }
     bytes_written += VarInt<size_t>::write_to_stream(bytes_needed, stream);
     for (auto value : values)
@@ -158,7 +190,7 @@ size_t write_VarInt_array(size_t field_number, Vector<T> const& values, OutputSt
     return bytes_written;
 }
 
-size_t write_bytes_array(size_t field_number, Vector<String> values, OutputStream& stream)
+inline size_t write_bytes_array(size_t field_number, Vector<String> values, OutputStream& stream)
 {
     size_t bytes_written = 0;
     for (auto const& value : values) {
@@ -168,7 +200,7 @@ size_t write_bytes_array(size_t field_number, Vector<String> values, OutputStrea
     }
     return bytes_written;
 }
-size_t write_bytes_array(size_t field_number, Vector<ByteBuffer> values, OutputStream& stream)
+inline size_t write_bytes_array(size_t field_number, Vector<ByteBuffer> values, OutputStream& stream)
 {
     size_t bytes_written = 0;
     for (auto const& value : values) {

@@ -1,0 +1,46 @@
+
+// FIXME: FlatPtrs!
+
+// FIXME: Pagemap enum?
+// FIXME: volatile_ should be optional
+message Region {
+    bool readable          = 0;
+    bool writable          = 1;
+    bool executable        = 2;
+    bool stack             = 3;
+    bool shared            = 4;
+    bool syscall           = 5;
+    bool purgeable         = 6;
+    bool volatile_         = 7;
+    bool cacheable         = 8;
+    uint64 address         = 9;
+    uint64 size            = 10;
+    uint64 amount_resident = 11;
+    uint64 amount_dirty    = 12;
+    uint64 cow_pages       = 13;
+    string name            = 14;
+    string vmobject        = 15;
+    string pagemap         = 16;
+}
+
+message Fd {
+    uint64 fd            = 0;
+    bool seekable        = 1;
+    bool cloexec         = 2;
+    bool blocking        = 3;
+    bool can_read        = 4;
+    bool can_write       = 5;
+    string absolute_path = 6;
+    string class_        = 7;
+    uint64 offset        = 8;
+}
+
+message Unveil {
+    string path        = 0;
+    string permissions = 1;
+}
+
+// FIXME: This should be an array and not a space separated list
+message Pledge {
+    string promisses = 0;
+}

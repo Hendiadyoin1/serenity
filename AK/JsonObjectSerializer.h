@@ -32,13 +32,11 @@ public:
             finish();
     }
 
-#ifndef KERNEL
     void add(const StringView& key, const JsonValue& value)
     {
         begin_item(key);
         value.serialize(m_builder);
     }
-#endif
 
     void add(const StringView& key, const StringView& value)
     {
