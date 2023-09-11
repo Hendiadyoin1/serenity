@@ -7,6 +7,7 @@
 
 #include <AK/Checked.h>
 #include <AK/Function.h>
+#include <AK/IntegralMath.h>
 #include <AK/StringBuilder.h>
 #include <AK/Utf16View.h>
 #include <LibJS/Heap/Heap.h>
@@ -753,8 +754,9 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::pad_start)
 JS_DEFINE_NATIVE_FUNCTION(StringPrototype::repeat)
 {
     // 1. Let O be ? RequireObjectCoercible(this value).
+    auto object = TRY(require_object_coercible(vm, vm.this_value()));
     // 2. Let S be ? ToString(O).
-    auto string = TRY(utf8_string_from(vm));
+    auto string = TRY(object.to_primitive_string(vm));
 
     // 3. Let n be ? ToIntegerOrInfinity(count).
     auto n = TRY(vm.argument(0).to_integer_or_infinity(vm));
@@ -770,14 +772,26 @@ JS_DEFINE_NATIVE_FUNCTION(StringPrototype::repeat)
         return PrimitiveString::create(vm, String {});
 
     // OPTIMIZATION: If the string is empty, the result will be empty as well.
-    if (string.is_empty())
+    if (string->is_empty())
         return PrimitiveString::create(vm, String {});
-
+    //               If n is 1, no need to do any work
+    if (n == 1)
+        return string;
+    //               If n is way to big we should not even try to create it
+    //        FIXME: Define way to big
+    if (n > NumericLimits<size_t>::max())
+        return vm.throw_completion<RangeError>(ErrorType::OutOfMemory);
     // 6. Return the String value that is made from n copies of S appended together.
-    StringBuilder builder;
-    for (size_t i = 0; i < n; ++i)
-        builder.append(string);
-    return PrimitiveString::create(vm, MUST(builder.to_string()));
+    // Note: We use Rope-Strings, so we can use Multiplication-By-Doubling, which should be faster for now
+    auto rope = string;
+    size_t z = static_cast<size_t>(n);
+    size_t log_z = AK::log2<size_t>(z);
+    for (size_t i = 1 << (log_z - 1); i != 0; i >>= 1) {
+        rope = PrimitiveString::create(vm, rope, rope);
+        if (z & i)
+            rope = PrimitiveString::create(vm, rope, string);
+    }
+    return rope;
 }
 
 // 22.1.3.19 String.prototype.replace ( searchValue, replaceValue ), https://tc39.es/ecma262/#sec-string.prototype.replace

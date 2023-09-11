@@ -255,6 +255,7 @@ void PrimitiveString::resolve_rope_if_needed(EncodingPreference preference) cons
 
     // NOTE: We traverse the rope tree without using recursion, since we'd run out of
     //       stack space quickly when handling a long sequence of unresolved concatenations.
+    // FIXME: We could save some time in case any of the descendant rope strings are the same
     Vector<PrimitiveString const*> stack;
     stack.append(m_rhs);
     stack.append(m_lhs);
