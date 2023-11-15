@@ -3386,11 +3386,13 @@ OwnPtr<NativeExecutable> Compiler::compile(Bytecode::Executable& bytecode_execut
         block_data.label.link_to(compiler.m_assembler, block_data.start_offset);
     }
 
-    if constexpr (DUMP_JIT_MACHINE_CODE_TO_STDOUT) {
-        (void)write(STDOUT_FILENO, compiler.m_output.data(), compiler.m_output.size());
-    }
-
     memcpy(executable_memory, compiler.m_output.data(), compiler.m_output.size());
+
+    compiler.m_assembler.relocate_calls(reinterpret_cast<u8*>(executable_memory));
+
+    if constexpr (DUMP_JIT_MACHINE_CODE_TO_STDOUT) {
+        (void)write(STDOUT_FILENO, executable_memory, compiler.m_output.size());
+    }
 
     if (mprotect(executable_memory, compiler.m_output.size(), PROT_READ | PROT_EXEC) < 0) {
         dbgln("mprotect: {}", strerror(errno));

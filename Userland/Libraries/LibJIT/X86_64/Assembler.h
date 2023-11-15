@@ -19,6 +19,12 @@ struct X86_64Assembler {
 
     Vector<u8>& m_output;
 
+    struct CallRelocation {
+        size_t offset;
+        FlatPtr callee;
+    };
+    Vector<CallRelocation> m_call_relocations;
+
     enum class Reg {
         RAX = 0,
         RCX = 1,
@@ -1010,18 +1016,56 @@ struct X86_64Assembler {
         for (auto const& stack_argument : stack_arguments.in_reverse())
             push(stack_argument);
 
-        // load callee into RAX
-        mov(Operand::Register(Reg::RAX), Operand::Imm(callee));
-
-        // call RAX
-        emit8(0xff);
-        emit_modrm_slash(2, Operand::Register(Reg::RAX));
+        add_call(callee);
 
         if (!stack_arguments.is_empty() || needs_aligning)
             add(Operand::Register(Reg::RSP), Operand::Imm((stack_arguments.size() + (needs_aligning ? 1 : 0)) * sizeof(u64)));
 
         for (auto const& reg : preserved_registers)
             pop(reg);
+    }
+
+    void add_call(FlatPtr callee)
+    {
+        // (Near) calls on x86 can be done in two ways:
+        // REW.W 8b dead'beef'caffe'babe mov rax, callee
+        // 0xff /2                       call rax
+        // -> 12 bytes (near, absolute, indirect)
+        // e8 dead'beef                  call callee
+        // -> 5 bytes (near, relative)
+        // The latter is preferable, due to being smaller and the cpu seeing the
+        // address it will jump to allowing it to prefetch it
+        // As we don't know if the offset will fit in the 32 bit offset,
+        // we just skip 12 bytes and delegate the codegen to later
+        CallRelocation reloc { m_output.size(), callee };
+        m_call_relocations.append(reloc);
+        u8 dummy[12] {};
+        m_output.append(dummy, 12);
+    }
+
+    void relocate_calls(u8* final_executable)
+    {
+        // FIXME: We can't use our nice helper function for the "foreign" code segment
+        // FIXME: Maybe avoid the nop sled and shift the code,
+        //        this would require keeping a counter on how much we already shifted, to adjust relocation indices
+        for (auto [offset, callee] : m_call_relocations) {
+            auto* instruction_start = &final_executable[offset];
+            auto relative_offset = static_cast<i64>(callee) - bit_cast<i64>(instruction_start) - 5;
+            if (relative_offset < NumericLimits<i32>::max() && relative_offset > NumericLimits<i32>::min()) {
+                instruction_start[0] = 0xe8;
+                __builtin_memcpy(&instruction_start[1], &relative_offset, 4);
+                u8 nop7[] { 0x0F, 0x1F, 0x80, 0x00, 0x00, 0x00, 0x00 }; // Intel Manual Vol 2b - NOP
+                __builtin_memcpy(&instruction_start[5], &nop7, 7);
+            } else {
+                // REW.W 8b dead'beef'caffe'babe
+                u8 mov_rax_imm[] = { 0x48, 0x8b };
+                __builtin_memcpy(&instruction_start[0], &mov_rax_imm, 2);
+                __builtin_memcpy(&instruction_start[2], &callee, 8);
+                // 0xff /2                       call rax
+                u8 call_rax[] = { 0xff, 0xd0 };
+                __builtin_memcpy(&instruction_start[10], &call_rax, 2);
+            }
+        }
     }
 
     void trap()
