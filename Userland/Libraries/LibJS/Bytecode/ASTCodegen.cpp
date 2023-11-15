@@ -227,7 +227,9 @@ Bytecode::CodeGenerationErrorOr<void> UnaryExpression::generate_bytecode(Bytecod
         generator.emit<Bytecode::Op::Not>();
         break;
     case UnaryOp::Plus:
-        generator.emit<Bytecode::Op::UnaryPlus>();
+        // Note: UnaryPlus internally only casts to numeric
+        //       So let's just short circuit to that
+        generator.emit<Bytecode::Op::ToNumeric>();
         break;
     case UnaryOp::Minus:
         generator.emit<Bytecode::Op::UnaryMinus>();
