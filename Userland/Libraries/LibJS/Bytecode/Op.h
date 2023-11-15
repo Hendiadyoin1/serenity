@@ -1164,6 +1164,17 @@ public:
     DeprecatedString to_deprecated_string_impl(Bytecode::Executable const&) const;
 };
 
+class ToInteger final : public Instruction {
+public:
+    ToInteger()
+        : Instruction(Type::ToInteger, sizeof(*this))
+    {
+    }
+
+    ThrowCompletionOr<void> execute_impl(Bytecode::Interpreter&) const;
+    DeprecatedString to_deprecated_string_impl(Bytecode::Executable const&) const;
+};
+
 class Throw final : public Instruction {
 public:
     constexpr static bool IsTerminator = true;

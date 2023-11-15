@@ -1266,6 +1266,12 @@ ThrowCompletionOr<void> ToNumeric::execute_impl(Bytecode::Interpreter& interpret
     return {};
 }
 
+ThrowCompletionOr<void> ToInteger::execute_impl(Bytecode::Interpreter& interpreter) const
+{
+    interpreter.accumulator() = Value(TRY(interpreter.accumulator().to_i32(interpreter.vm())));
+    return {};
+}
+
 ThrowCompletionOr<void> BlockDeclarationInstantiation::execute_impl(Bytecode::Interpreter& interpreter) const
 {
     auto& vm = interpreter.vm();
@@ -1736,6 +1742,11 @@ DeprecatedString TypeofLocal::to_deprecated_string_impl(Bytecode::Executable con
 DeprecatedString ToNumeric::to_deprecated_string_impl(Bytecode::Executable const&) const
 {
     return "ToNumeric"sv;
+}
+
+DeprecatedString ToInteger::to_deprecated_string_impl(Bytecode::Executable const&) const
+{
+    return "ToInteger"sv;
 }
 
 DeprecatedString BlockDeclarationInstantiation::to_deprecated_string_impl(Bytecode::Executable const&) const

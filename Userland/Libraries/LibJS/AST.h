@@ -1164,6 +1164,7 @@ public:
     {
     }
 
+    Value value() const { return m_value; }
     virtual void dump(int indent) const override;
     virtual Bytecode::CodeGenerationErrorOr<void> generate_bytecode(Bytecode::Generator&) const override;
 

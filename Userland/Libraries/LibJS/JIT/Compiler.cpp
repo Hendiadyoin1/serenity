@@ -2147,6 +2147,28 @@ void Compiler::compile_to_numeric(Bytecode::Op::ToNumeric const&)
     fast_case.link(m_assembler);
 }
 
+static Value cxx_to_i32(VM& vm, Value value)
+{
+    return Value(TRY_OR_SET_EXCEPTION(value.to_i32(vm)));
+}
+
+void Compiler::compile_to_integer(Bytecode::Op::ToInteger const&)
+{
+    Assembler::Label slow_case {};
+    Assembler::Label end {};
+
+    load_accumulator(ARG1);
+    jump_if_int32(ARG1, end);
+
+    // FIXME: Double fast path -> truncate
+
+    native_call((void*)cxx_to_i32);
+    store_accumulator(RET);
+    check_exception();
+
+    end.link(m_assembler);
+}
+
 static Value cxx_resolve_this_binding(VM& vm)
 {
     auto this_value = TRY_OR_SET_EXCEPTION(vm.resolve_this_binding());

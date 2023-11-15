@@ -77,6 +77,18 @@ Bytecode::CodeGenerationErrorOr<void> BinaryExpression::generate_bytecode(Byteco
     }
 
     TRY(m_lhs->generate_bytecode(generator));
+
+    // OPTIMIZATION: A binary-or by 0 is a noop with integers, and casts everything else to an integer
+    //               This is used for example by asm.js as a type annotation
+    //               Note: This only handles the `a|0` case, as that is the canonical version in asm.js
+    //               Compare to https://262.ecma-international.org/5.1/#sec-11.10
+    if (m_op == BinaryOp::BitwiseOr) {
+        if (auto const* rhs = dynamic_cast<NumericLiteral const*>(m_rhs.ptr()); rhs && rhs->value() == Value(0)) {
+            generator.emit<Bytecode::Op::ToInteger>();
+            return {};
+        }
+    }
+
     auto lhs_reg = generator.allocate_register();
     generator.emit<Bytecode::Op::Store>(lhs_reg);
 

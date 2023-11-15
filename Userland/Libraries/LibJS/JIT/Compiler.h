@@ -84,6 +84,7 @@ private:
         O(LeaveLexicalEnvironment, leave_lexical_environment)                    \
         O(EnterObjectEnvironment, enter_object_environment)                      \
         O(ToNumeric, to_numeric)                                                 \
+        O(ToInteger, to_integer)                                                 \
         O(ResolveThisBinding, resolve_this_binding)                              \
         O(Return, return)                                                        \
         O(NewString, new_string)                                                 \

@@ -110,6 +110,7 @@
     O(Throw)                           \
     O(ThrowIfNotObject)                \
     O(ThrowIfNullish)                  \
+    O(ToInteger)                       \
     O(ToNumeric)                       \
     O(Typeof)                          \
     O(TypeofVariable)                  \
