@@ -5,8 +5,20 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/Platform.h>
 #include <AK/Types.h>
 #include <LibCrypto/Hash/SHA2.h>
+
+#if (ARCH(I386) || ARCH(X86_64)) && !defined KERNEL && defined __GNUC__ && __GNUC__ >= 11
+#    include <emmintrin.h> /* SSE2 _mm_add_epi32 _mm_loadu_si128 _mm_set_epi64x _mm_shuffle_epi32 _mm_storeu_si128 */
+#    include <immintrin.h> /* SHA _mm_sha256msg1_epu32 _mm_sha256msg2_epu32 _mm_sha256rnds2_epu32 */
+#    include <smmintrin.h> /* SSE4.1 _mm_blend_epi16 */
+#    include <tmmintrin.h> /* SSSE3 _mm_alignr_epi8 _mm_shuffle_epi8 */
+#    define SHA256_ATTRIBUTE_TARGET_DEFAULT __attribute__((target("default")))
+#    define SHA256_ATTRIBUTE_TARGET_X86 __attribute__((target("sse2,ssse3,sse4.1,sha")))
+#else
+#    define SHA256_ATTRIBUTE_TARGET_DEFAULT
+#endif
 
 namespace Crypto::Hash {
 constexpr static auto ROTRIGHT(u32 a, size_t b) { return (a >> b) | (a << (32 - b)); }
@@ -25,9 +37,12 @@ constexpr static auto EP1(u64 x) { return ROTRIGHT(x, 14) ^ ROTRIGHT(x, 18) ^ RO
 constexpr static auto SIGN0(u64 x) { return ROTRIGHT(x, 1) ^ ROTRIGHT(x, 8) ^ (x >> 7); }
 constexpr static auto SIGN1(u64 x) { return ROTRIGHT(x, 19) ^ ROTRIGHT(x, 61) ^ (x >> 6); }
 
-inline void SHA256::transform(u8 const* data)
+SHA256_ATTRIBUTE_TARGET_DEFAULT static void SHA256_transform_impl(u32 (&state)[8], u8 const (&data)[64])
 {
-    u32 m[64];
+    constexpr static auto BlockSize = 64;
+    constexpr static auto Rounds = 64;
+
+    u32 m[BlockSize];
 
     size_t i = 0;
     for (size_t j = 0; i < 16; ++i, j += 4) {
@@ -38,10 +53,10 @@ inline void SHA256::transform(u8 const* data)
         m[i] = SIGN1(m[i - 2]) + m[i - 7] + SIGN0(m[i - 15]) + m[i - 16];
     }
 
-    auto a = m_state[0], b = m_state[1],
-         c = m_state[2], d = m_state[3],
-         e = m_state[4], f = m_state[5],
-         g = m_state[6], h = m_state[7];
+    auto a = state[0], b = state[1],
+         c = state[2], d = state[3],
+         e = state[4], f = state[5],
+         g = state[6], h = state[7];
 
     for (i = 0; i < Rounds; ++i) {
         auto temp0 = h + EP1(e) + CH(e, f, g) + SHA256Constants::RoundConstants[i] + m[i];
@@ -56,14 +71,233 @@ inline void SHA256::transform(u8 const* data)
         a = temp0 + temp1;
     }
 
-    m_state[0] += a;
-    m_state[1] += b;
-    m_state[2] += c;
-    m_state[3] += d;
-    m_state[4] += e;
-    m_state[5] += f;
-    m_state[6] += g;
-    m_state[7] += h;
+    state[0] += a;
+    state[1] += b;
+    state[2] += c;
+    state[3] += d;
+    state[4] += e;
+    state[5] += f;
+    state[6] += g;
+    state[7] += h;
+}
+
+#if (ARCH(I386) || ARCH(X86_64)) && !defined KERNEL && defined __GNUC__ && __GNUC__ >= 11
+SHA256_ATTRIBUTE_TARGET_X86 static void SHA256_transform_impl(u32 (&state)[8], u8 const (&data)[64])
+{
+    // Set up constant for reversing input buffer.
+    __m128i reverse_data = _mm_set_epi64x(0x0c0d0e0f08090a0bull, 0x0405060700010203ull);
+    // Load state into working registers.
+    __m128i state_0 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&state[0]));
+    __m128i state_1 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&state[4]));
+    __m128i tmp = _mm_shuffle_epi32(state_0, 0xb1);
+    state_1 = _mm_shuffle_epi32(state_1, 0x1b);
+    state_0 = _mm_alignr_epi8(tmp, state_1, 8);
+    state_1 = _mm_blend_epi16(state_1, tmp, 0xf0);
+    // Here could start `for' or `while' loop in case we processed more than one block at once.
+    // Save old state.
+    __m128i old_0 = state_0;
+    __m128i old_1 = state_1;
+    // Load four 32bit integers into working registers.
+    __m128i msg_0 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&data[0 * 16]));
+    msg_0 = _mm_shuffle_epi8(msg_0, reverse_data);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[0 * 4]));
+    __m128i msg = _mm_add_epi32(msg_0, tmp);
+    // Four rounds (0-3) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Load four 32bit integers into working registers.
+    __m128i msg_1 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&data[1 * 16]));
+    msg_1 = _mm_shuffle_epi8(msg_1, reverse_data);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[1 * 4]));
+    msg = _mm_add_epi32(msg_1, tmp);
+    // Four rounds (4-7) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Load four 32bit integers into working registers.
+    __m128i msg_2 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&data[2 * 16]));
+    msg_2 = _mm_shuffle_epi8(msg_2, reverse_data);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[2 * 4]));
+    msg = _mm_add_epi32(msg_2, tmp);
+    // Four rounds (8-11) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Load four 32bit integers into working registers.
+    __m128i msg_3 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&data[3 * 16]));
+    msg_3 = _mm_shuffle_epi8(msg_3, reverse_data);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[3 * 4]));
+    msg = _mm_add_epi32(msg_3, tmp);
+    // Four rounds (12-15) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_0 = _mm_sha256msg1_epu32(msg_0, msg_1);
+    tmp = _mm_alignr_epi8(msg_3, msg_2, 4);
+    msg_0 = _mm_add_epi32(msg_0, tmp);
+    msg_0 = _mm_sha256msg2_epu32(msg_0, msg_3);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[4 * 4]));
+    msg = _mm_add_epi32(msg_0, tmp);
+    // Four rounds (16-19) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_1 = _mm_sha256msg1_epu32(msg_1, msg_2);
+    tmp = _mm_alignr_epi8(msg_0, msg_3, 4);
+    msg_1 = _mm_add_epi32(msg_1, tmp);
+    msg_1 = _mm_sha256msg2_epu32(msg_1, msg_0);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[5 * 4]));
+    msg = _mm_add_epi32(msg_1, tmp);
+    // Four rounds (20-23) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_2 = _mm_sha256msg1_epu32(msg_2, msg_3);
+    tmp = _mm_alignr_epi8(msg_1, msg_0, 4);
+    msg_2 = _mm_add_epi32(msg_2, tmp);
+    msg_2 = _mm_sha256msg2_epu32(msg_2, msg_1);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[6 * 4]));
+    msg = _mm_add_epi32(msg_2, tmp);
+    // Four rounds (24-27) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_3 = _mm_sha256msg1_epu32(msg_3, msg_0);
+    tmp = _mm_alignr_epi8(msg_2, msg_1, 4);
+    msg_3 = _mm_add_epi32(msg_3, tmp);
+    msg_3 = _mm_sha256msg2_epu32(msg_3, msg_2);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[7 * 4]));
+    msg = _mm_add_epi32(msg_3, tmp);
+    // Four rounds (28-31) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_0 = _mm_sha256msg1_epu32(msg_0, msg_1);
+    tmp = _mm_alignr_epi8(msg_3, msg_2, 4);
+    msg_0 = _mm_add_epi32(msg_0, tmp);
+    msg_0 = _mm_sha256msg2_epu32(msg_0, msg_3);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[8 * 4]));
+    msg = _mm_add_epi32(msg_0, tmp);
+    // Four rounds (32-35) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_1 = _mm_sha256msg1_epu32(msg_1, msg_2);
+    tmp = _mm_alignr_epi8(msg_0, msg_3, 4);
+    msg_1 = _mm_add_epi32(msg_1, tmp);
+    msg_1 = _mm_sha256msg2_epu32(msg_1, msg_0);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[9 * 4]));
+    msg = _mm_add_epi32(msg_1, tmp);
+    // Four rounds (36-39) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_2 = _mm_sha256msg1_epu32(msg_2, msg_3);
+    tmp = _mm_alignr_epi8(msg_1, msg_0, 4);
+    msg_2 = _mm_add_epi32(msg_2, tmp);
+    msg_2 = _mm_sha256msg2_epu32(msg_2, msg_1);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[10 * 4]));
+    msg = _mm_add_epi32(msg_2, tmp);
+    // Four rounds (40-43) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_3 = _mm_sha256msg1_epu32(msg_3, msg_0);
+    tmp = _mm_alignr_epi8(msg_2, msg_1, 4);
+    msg_3 = _mm_add_epi32(msg_3, tmp);
+    msg_3 = _mm_sha256msg2_epu32(msg_3, msg_2);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[11 * 4]));
+    msg = _mm_add_epi32(msg_3, tmp);
+    // Four rounds (44-47) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_0 = _mm_sha256msg1_epu32(msg_0, msg_1);
+    tmp = _mm_alignr_epi8(msg_3, msg_2, 4);
+    msg_0 = _mm_add_epi32(msg_0, tmp);
+    msg_0 = _mm_sha256msg2_epu32(msg_0, msg_3);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[12 * 4]));
+    msg = _mm_add_epi32(msg_0, tmp);
+    // Four rounds (48-51) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_1 = _mm_sha256msg1_epu32(msg_1, msg_2);
+    tmp = _mm_alignr_epi8(msg_0, msg_3, 4);
+    msg_1 = _mm_add_epi32(msg_1, tmp);
+    msg_1 = _mm_sha256msg2_epu32(msg_1, msg_0);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[13 * 4]));
+    msg = _mm_add_epi32(msg_1, tmp);
+    // Four rounds (52-55) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_2 = _mm_sha256msg1_epu32(msg_2, msg_3);
+    tmp = _mm_alignr_epi8(msg_1, msg_0, 4);
+    msg_2 = _mm_add_epi32(msg_2, tmp);
+    msg_2 = _mm_sha256msg2_epu32(msg_2, msg_1);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[14 * 4]));
+    msg = _mm_add_epi32(msg_2, tmp);
+    // Four rounds (56-59) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Generate next input, described in NIST FIPS PUB 180-4 section 6.2.2.1.
+    msg_3 = _mm_sha256msg1_epu32(msg_3, msg_0);
+    tmp = _mm_alignr_epi8(msg_2, msg_1, 4);
+    msg_3 = _mm_add_epi32(msg_3, tmp);
+    msg_3 = _mm_sha256msg2_epu32(msg_3, msg_2);
+    // Load four 32bit constants into working registers and sum them with input.
+    tmp = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&SHA256Constants::RoundConstants[15 * 4]));
+    msg = _mm_add_epi32(msg_3, tmp);
+    // Four rounds (60-63) of the SHA-256 algorithm.
+    state_1 = _mm_sha256rnds2_epu32(state_1, state_0, msg);
+    msg = _mm_shuffle_epi32(msg, 0x4e);
+    state_0 = _mm_sha256rnds2_epu32(state_0, state_1, msg);
+    // Sum current working registers with saved state from before.
+    state_0 = _mm_add_epi32(state_0, old_0);
+    state_1 = _mm_add_epi32(state_1, old_1);
+    // Here could end `for' or `while' loop in case we processed more than one block at once.
+    // Save working registers into state.
+    tmp = _mm_shuffle_epi32(state_0, 0x1b);
+    state_1 = _mm_shuffle_epi32(state_1, 0xb1);
+    state_0 = _mm_blend_epi16(tmp, state_1, 0xf0);
+    state_1 = _mm_alignr_epi8(state_1, tmp, 8);
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(&state[0]), state_0);
+    _mm_storeu_si128(reinterpret_cast<__m128i*>(&state[4]), state_1);
+}
+#endif
+
+inline void SHA256::transform(u8 const (&data)[BlockSize])
+{
+    SHA256_transform_impl(m_state, data);
 }
 
 template<size_t BlockSize, typename Callback>
