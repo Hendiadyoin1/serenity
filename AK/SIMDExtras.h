@@ -183,30 +183,61 @@ ALWAYS_INLINE static void store4_masked(VectorType v, UnderlyingType* a, Underly
 }
 
 // Shuffle
-
-template<OneOf<i8x16, u8x16> T>
-ALWAYS_INLINE static T shuffle(T a, T control)
+namespace Detail {
+template<SIMDVector T, SIMDVector Control, size_t... Idx>
+ALWAYS_INLINE static T shuffle_impl(T a, Control control, IndexSequence<Idx...>)
 {
-    // FIXME: This is probably not the fastest way to do this.
+    // FIXME: Maybe make the VERIFYs optional, eg on SIMD-DEBUG, to avoid the overhead in performance oriented users, like LibWasm::SIMD
+    // Note: - instead of _ to make the linter happy, as SIMD-DEBUG does not (yet) exist
+    constexpr Conditional<IsSigned<ElementOf<Control>>, ssize_t, size_t> N = vector_length<T>;
+    (VERIFY(control[Idx] < N), ...);
     return T {
-        a[control[0] & 0xf],
-        a[control[1] & 0xf],
-        a[control[2] & 0xf],
-        a[control[3] & 0xf],
-        a[control[4] & 0xf],
-        a[control[5] & 0xf],
-        a[control[6] & 0xf],
-        a[control[7] & 0xf],
-        a[control[8] & 0xf],
-        a[control[9] & 0xf],
-        a[control[10] & 0xf],
-        a[control[11] & 0xf],
-        a[control[12] & 0xf],
-        a[control[13] & 0xf],
-        a[control[14] & 0xf],
-        a[control[15] & 0xf],
+        a[control[Idx]]...
     };
 }
+
+template<SIMDVector T, size_t... Idx>
+ALWAYS_INLINE static T item_reverse_impl(T a, IndexSequence<Idx...>)
+{
+    constexpr size_t N = vector_length<T>;
+    return __builtin_shufflevector(a, a, N - 1 - Idx...);
+}
+
+template<SIMDVector T, size_t... Idx>
+ALWAYS_INLINE static T byte_reverse_impl(T a, IndexSequence<Idx...>)
+{
+    static_assert(sizeof(T) == sizeof...(Idx));
+    constexpr size_t N = sizeof(T);
+    using BytesVector = Conditional<sizeof(T) == 16, u8x16, Conditional<sizeof(T) == 32, u8x32, void>>;
+    static_assert(sizeof(T) == sizeof(BytesVector));
+    return bit_cast<T>(
+        __builtin_shufflevector(
+            bit_cast<BytesVector>(a),
+            bit_cast<BytesVector>(a),
+            N - 1 - Idx...));
+}
+
+}
+
+// FIXME: Shuffles only work with integral types for now
+template<SIMDVector T>
+ALWAYS_INLINE static T shuffle(T a, IndexVectorFor<T> control)
+{
+    return Detail::shuffle_impl(a, control, MakeIndexSequence<vector_length<T>>());
+}
+
+template<SIMDVector T>
+ALWAYS_INLINE static T item_reverse(T a)
+{
+    return Detail::item_reverse_impl(a, MakeIndexSequence<vector_length<T>>());
+}
+
+template<SIMDVector T>
+ALWAYS_INLINE static T byte_reverse(T a)
+{
+    return Detail::byte_reverse_impl(a, MakeIndexSequence<sizeof(T)>());
+}
+
 }
 
 #pragma GCC diagnostic pop
