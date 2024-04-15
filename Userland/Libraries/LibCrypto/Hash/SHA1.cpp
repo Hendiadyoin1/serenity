@@ -11,13 +11,13 @@
 #include <AK/Types.h>
 #include <LibCrypto/Hash/SHA1.h>
 
-#if (ARCH(I386) || ARCH(X86_64)) && defined __GNUC__ && __GNUC__ >= 11
-#    include <emmintrin.h> // SSE2 _mm_add_epi32 _mm_loadu_si128 _mm_set_epi32 _mm_set_epi64x _mm_setzero_si128 _mm_shuffle_epi32 _mm_storeu_si128 _mm_xor_si128
-#    include <immintrin.h> // SHA _mm_sha1msg1_epu32 _mm_sha1msg2_epu32 _mm_sha1nexte_epu32 _mm_sha1rnds4_epu32
-#    include <smmintrin.h> // SSE4.1 _mm_extract_epi32
-#    include <tmmintrin.h> // SSSE3 _mm_shuffle_epi8
+// FIXME: Clang does not support the `sha` target in function multiversioning
+#if (ARCH(I386) || ARCH(X86_64)) && defined(AK_COMPILER_GCC)
+#    include <AK/SIMD.h>
+#    include <AK/SIMDExtras.h>
 #    define SHA1_ATTRIBUTE_TARGET_DEFAULT __attribute__((target("default")))
-#    define SHA1_ATTRIBUTE_TARGET_X86 __attribute__((target("sse2,ssse3,sse4.1,sha")))
+#    define SHA1_ATTRIBUTE_TARGET_X86 __attribute__((target("sse2,ssse3,sse4.1,sha"), used))
+
 #else
 #    define SHA1_ATTRIBUTE_TARGET_DEFAULT
 #endif
@@ -81,166 +81,56 @@ SHA1_ATTRIBUTE_TARGET_DEFAULT static void transform_impl(u32 (&state)[5], u8 con
     secure_zero(blocks, 16 * sizeof(u32));
 }
 
-#if (ARCH(I386) || ARCH(X86_64)) && defined __GNUC__ && __GNUC__ >= 11
+#if (ARCH(I386) || ARCH(X86_64)) && defined(AK_COMPILER_GCC)
+
 SHA1_ATTRIBUTE_TARGET_X86 static void transform_impl(u32 (&state)[5], u8 const (&data)[64])
 {
-    // Set up constant for reversing input buffer.
-    __m128i reverse_8 = _mm_set_epi64x(0x0001020304050607ull, 0x08090a0b0c0d0e0full);
-    // Load state into working registers.
-    __m128i abcd_1 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&state[0]));
-    abcd_1 = _mm_shuffle_epi32(abcd_1, 0x1b);
-    __m128i e = _mm_set_epi32(*reinterpret_cast<int const*>(&state[4]), 0, 0, 0);
-    // Here could start `for' or `while' loop in case we processed more than one block at once.
-    // Save old state.
-    __m128i old_abcd = abcd_1;
-    __m128i old_e = e;
-    // Load four 32bit integers into working registers.
-    __m128i msg_0 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&data[0 * 16]));
-    msg_0 = _mm_shuffle_epi8(msg_0, reverse_8);
-    // Four rounds (0-3) of the SHA-1 algorithm.
-    e = _mm_add_epi32(e, msg_0);
-    __m128i abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 0);
-    // Load four 32bit integers into working registers.
-    __m128i msg_1 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&data[1 * 16]));
-    msg_1 = _mm_shuffle_epi8(msg_1, reverse_8);
-    // Four rounds (4-7) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_1);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 0);
-    // Load four 32bit integers into working registers.
-    __m128i msg_2 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&data[2 * 16]));
-    msg_2 = _mm_shuffle_epi8(msg_2, reverse_8);
-    // Four rounds (8-11) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_2);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 0);
-    // Load four 32bit integers into working registers.
-    __m128i msg_3 = _mm_loadu_si128(reinterpret_cast<__m128i const*>(&data[3 * 16]));
-    msg_3 = _mm_shuffle_epi8(msg_3, reverse_8);
-    // Four rounds (12-15) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_3);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 0);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_0 = _mm_sha1msg1_epu32(msg_0, msg_1);
-    msg_0 = _mm_xor_si128(msg_0, msg_2);
-    msg_0 = _mm_sha1msg2_epu32(msg_0, msg_3);
-    // Four rounds (16-19) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_0);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 0);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_1 = _mm_sha1msg1_epu32(msg_1, msg_2);
-    msg_1 = _mm_xor_si128(msg_1, msg_3);
-    msg_1 = _mm_sha1msg2_epu32(msg_1, msg_0);
-    // Four rounds (20-23) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_1);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 1);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_2 = _mm_sha1msg1_epu32(msg_2, msg_3);
-    msg_2 = _mm_xor_si128(msg_2, msg_0);
-    msg_2 = _mm_sha1msg2_epu32(msg_2, msg_1);
-    // Four rounds (24-27) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_2);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 1);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_3 = _mm_sha1msg1_epu32(msg_3, msg_0);
-    msg_3 = _mm_xor_si128(msg_3, msg_1);
-    msg_3 = _mm_sha1msg2_epu32(msg_3, msg_2);
-    // Four rounds (28-31) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_3);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 1);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_0 = _mm_sha1msg1_epu32(msg_0, msg_1);
-    msg_0 = _mm_xor_si128(msg_0, msg_2);
-    msg_0 = _mm_sha1msg2_epu32(msg_0, msg_3);
-    // Four rounds (32-35) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_0);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 1);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_1 = _mm_sha1msg1_epu32(msg_1, msg_2);
-    msg_1 = _mm_xor_si128(msg_1, msg_3);
-    msg_1 = _mm_sha1msg2_epu32(msg_1, msg_0);
-    // Four rounds (36-39) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_1);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 1);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_2 = _mm_sha1msg1_epu32(msg_2, msg_3);
-    msg_2 = _mm_xor_si128(msg_2, msg_0);
-    msg_2 = _mm_sha1msg2_epu32(msg_2, msg_1);
-    // Four rounds (40-43) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_2);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 2);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_3 = _mm_sha1msg1_epu32(msg_3, msg_0);
-    msg_3 = _mm_xor_si128(msg_3, msg_1);
-    msg_3 = _mm_sha1msg2_epu32(msg_3, msg_2);
-    // Four rounds (44-47) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_3);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 2);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_0 = _mm_sha1msg1_epu32(msg_0, msg_1);
-    msg_0 = _mm_xor_si128(msg_0, msg_2);
-    msg_0 = _mm_sha1msg2_epu32(msg_0, msg_3);
-    // Four rounds (48-51) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_0);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 2);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_1 = _mm_sha1msg1_epu32(msg_1, msg_2);
-    msg_1 = _mm_xor_si128(msg_1, msg_3);
-    msg_1 = _mm_sha1msg2_epu32(msg_1, msg_0);
-    // Four rounds (52-55) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_1);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 2);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_2 = _mm_sha1msg1_epu32(msg_2, msg_3);
-    msg_2 = _mm_xor_si128(msg_2, msg_0);
-    msg_2 = _mm_sha1msg2_epu32(msg_2, msg_1);
-    // Four rounds (56-59) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_2);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 2);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_3 = _mm_sha1msg1_epu32(msg_3, msg_0);
-    msg_3 = _mm_xor_si128(msg_3, msg_1);
-    msg_3 = _mm_sha1msg2_epu32(msg_3, msg_2);
-    // Four rounds (60-63) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_3);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 3);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_0 = _mm_sha1msg1_epu32(msg_0, msg_1);
-    msg_0 = _mm_xor_si128(msg_0, msg_2);
-    msg_0 = _mm_sha1msg2_epu32(msg_0, msg_3);
-    // Four rounds (64-67) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_0);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 3);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_1 = _mm_sha1msg1_epu32(msg_1, msg_2);
-    msg_1 = _mm_xor_si128(msg_1, msg_3);
-    msg_1 = _mm_sha1msg2_epu32(msg_1, msg_0);
-    // Four rounds (68-71) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_1);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 3);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_2 = _mm_sha1msg1_epu32(msg_2, msg_3);
-    msg_2 = _mm_xor_si128(msg_2, msg_0);
-    msg_2 = _mm_sha1msg2_epu32(msg_2, msg_1);
-    // Four rounds (72-77) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_2, msg_2);
-    abcd_2 = _mm_sha1rnds4_epu32(abcd_1, e, 3);
-    // Generate next input, aka preprocessing, described in NIST FIPS PUB 180-4 section 6.1.2.1.
-    msg_3 = _mm_sha1msg1_epu32(msg_3, msg_0);
-    msg_3 = _mm_xor_si128(msg_3, msg_1);
-    msg_3 = _mm_sha1msg2_epu32(msg_3, msg_2);
-    // Four rounds (76-79) of the SHA-1 algorithm.
-    e = _mm_sha1nexte_epu32(abcd_1, msg_3);
-    abcd_1 = _mm_sha1rnds4_epu32(abcd_2, e, 3);
-    // Finish computation of the last `e' value.
-    msg_0 = _mm_setzero_si128();
-    e = _mm_sha1nexte_epu32(abcd_2, msg_0);
-    // Sum current working registers with saved state from before.
-    abcd_1 = _mm_add_epi32(abcd_1, old_abcd);
-    e = _mm_add_epi32(e, old_e);
-    // Here could end `for' or `while' loop in case we processed more than one block at once.
-    // Save working registers into state.
-    abcd_1 = _mm_shuffle_epi32(abcd_1, 0x1b);
-    _mm_storeu_si128(reinterpret_cast<__m128i*>(&state[0]), abcd_1);
-    state[4] = static_cast<u32>(_mm_extract_epi32(e, 3));
+    using AK::SIMD::i32x4;
+
+    i32x4 abcd[2] {};
+    i32x4 msgs[4] {};
+
+    abcd[0] = AK::SIMD::load_unaligned<i32x4>(&state[0]);
+    abcd[0] = AK::SIMD::item_reverse(abcd[0]);
+    i32x4 e { 0, 0, 0, static_cast<i32>(state[4]) };
+
+    // FIXME: Test if unrolling the loop is worth it
+    //          GCC: #pragma GCC unroll(5)
+    //        Clang: #pragma unroll
+#    define GROUP(i_group)                                                                         \
+        for (size_t i_pack = 0; i_pack != 5; ++i_pack) {                                           \
+            size_t i_msg = i_group * 5 + i_pack;                                                   \
+            if (i_msg < 4) {                                                                       \
+                msgs[i_msg] = AK::SIMD::load_unaligned<i32x4>(&data[i_msg * 16]);                  \
+                msgs[i_msg] = AK::SIMD::byte_reverse(msgs[i_msg]);                                 \
+            } else {                                                                               \
+                msgs[i_msg % 4] = __builtin_ia32_sha1msg1(msgs[i_msg % 4], msgs[(i_msg + 1) % 4]); \
+                msgs[i_msg % 4] ^= msgs[(i_msg + 2) % 4];                                          \
+                msgs[i_msg % 4] = __builtin_ia32_sha1msg2(msgs[i_msg % 4], msgs[(i_msg + 3) % 4]); \
+            }                                                                                      \
+            if (i_msg == 0) {                                                                      \
+                e += msgs[0];                                                                      \
+            } else {                                                                               \
+                e = __builtin_ia32_sha1nexte(abcd[(i_msg + 1) % 2], msgs[(i_msg + 0) % 4]);        \
+            }                                                                                      \
+            abcd[(i_msg + 1) % 2] = __builtin_ia32_sha1rnds4(abcd[(i_msg + 0) % 2], e, i_group);   \
+        }
+
+    auto old_abcd = abcd[0];
+    auto old_e = e;
+
+    GROUP(0);
+    GROUP(1);
+    GROUP(2);
+    GROUP(3);
+
+    e = __builtin_ia32_sha1nexte(abcd[1], i32x4 {});
+    abcd[0] += old_abcd;
+    e += old_e;
+
+    abcd[0] = AK::SIMD::item_reverse(abcd[0]);
+    AK::SIMD::store_unaligned(&state[0], abcd[0]);
+    state[4] = e[3];
 }
 #endif
 
