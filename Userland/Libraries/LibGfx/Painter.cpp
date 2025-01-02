@@ -2261,8 +2261,7 @@ void Painter::for_each_line_segment_on_elliptical_arc(FloatPoint p1, FloatPoint 
     FloatPoint current_point = relative_start;
     FloatPoint next_point = { 0, 0 };
 
-    float sin_x_axis, cos_x_axis;
-    AK::sincos(x_axis_rotation, sin_x_axis, cos_x_axis);
+    auto [sin_x_axis, cos_x_axis] = AK::sincos(x_axis_rotation);
     auto rotate_point = [sin_x_axis, cos_x_axis](FloatPoint& p) {
         auto original_x = p.x();
         auto original_y = p.y();
@@ -2279,8 +2278,7 @@ void Painter::for_each_line_segment_on_elliptical_arc(FloatPoint p1, FloatPoint 
     };
 
     for (float theta = theta_1; theta <= theta_1 + theta_delta; theta += theta_step) {
-        float s, c;
-        AK::sincos(theta, s, c);
+        auto [s, c] = AK::sincos(theta);
         next_point.set_x(a * c);
         next_point.set_y(b * s);
         rotate_point(next_point);

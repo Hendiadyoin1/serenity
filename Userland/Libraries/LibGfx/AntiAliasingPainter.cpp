@@ -69,9 +69,7 @@ void AntiAliasingPainter::draw_anti_aliased_line(FloatPoint actual_from, FloatPo
 
     auto delta = mapped_to - mapped_from;
     auto line_angle_radians = AK::atan2(delta.y(), delta.x()) - 0.5f * AK::Pi<float>;
-    float sin_inverse_angle;
-    float cos_inverse_angle;
-    AK::sincos(-line_angle_radians, sin_inverse_angle, cos_inverse_angle);
+    auto [sin_inverse_angle, cos_inverse_angle] = AK::sincos(-line_angle_radians);
 
     auto inverse_rotate_point = [=](FloatPoint point) {
         return Gfx::FloatPoint(

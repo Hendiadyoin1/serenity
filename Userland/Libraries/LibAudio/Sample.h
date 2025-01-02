@@ -104,8 +104,7 @@ struct Sample {
         float const pi_over_2 = AK::Pi<float> * 0.5f;
         float const root_over_2 = AK::sqrt<float>(2.0) * 0.5f;
         float const angle = position * pi_over_2 * 0.5f;
-        float s, c;
-        AK::sincos<float>(angle, s, c);
+        auto [s, c] = AK::sincos<float>(angle);
         left *= root_over_2 * (c - s);
         right *= root_over_2 * (c + s);
         return *this;

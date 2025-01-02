@@ -37,8 +37,7 @@ template<typename T>
 inline float calculate_gradient_length(Size<T> gradient_size, float gradient_angle)
 {
     float angle = normalized_gradient_angle_radians(gradient_angle);
-    float sin_angle, cos_angle;
-    AK::sincos(angle, sin_angle, cos_angle);
+    auto [sin_angle, cos_angle] = AK::sincos(angle);
     return calculate_gradient_length(gradient_size, sin_angle, cos_angle);
 }
 

@@ -51,8 +51,7 @@ public:
     template<AK::Concepts::Arithmetic U, AK::Concepts::Arithmetic V>
     static constexpr Complex<T> from_polar(U magnitude, V phase)
     {
-        V s, c;
-        sincos(phase, s, c);
+        auto [s, c] = sincos(phase);
         return Complex<T>(magnitude * c, magnitude * s);
     }
 

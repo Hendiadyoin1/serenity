@@ -31,21 +31,21 @@ private:
     static FloatMatrix3x3 calculate_hue_rotate_matrix(float angle_degrees)
     {
         float const angle_rads = AK::to_radians(angle_degrees);
-        float cos_angle = 0.;
-        float sin_angle = 0.;
-        AK::sincos(angle_rads, sin_angle, cos_angle);
+        float const sqrt_3 = AK::sqrt(3.0f);
+        auto [sin, cos] = AK::sincos(angle_rads);
         return FloatMatrix3x3 {
-            float(cos_angle + (1.0f - cos_angle) / 3.0f),
-            float(1.0f / 3.0f * (1.0f - cos_angle) - sqrtf(1.0f / 3.0f) * sin_angle),
-            float(1.0f / 3.0f * (1.0f - cos_angle) + sqrtf(1.0f / 3.0f) * sin_angle),
+            1 + 2 * cos,
+            1 - cos - sqrt_3 * sin,
+            1 - cos + sqrt_3 * sin,
 
-            float(1.0f / 3.0f * (1.0f - cos_angle) + sqrtf(1.0f / 3.0f) * sin_angle),
-            float(cos_angle + 1.0f / 3.0f * (1.0f - cos_angle)),
-            float(1.0f / 3.0f * (1.0f - cos_angle) - sqrtf(1.0f / 3.0f) * sin_angle),
+            1 - cos + sqrt_3 * sin,
+            1 + 2 * cos,
+            1 - cos - sqrt_3 * sin,
 
-            float(1.0f / 3.0f * (1.0f - cos_angle) - sqrtf(1.0f / 3.0f) * sin_angle),
-            float(1.0f / 3.0f * (1.0f - cos_angle) + sqrtf(1.0f / 3.0f) * sin_angle),
-            float(cos_angle + 1.0f / 3.0f * (1.0f - cos_angle))
-        };
+            1 - cos - sqrt_3 * sin,
+            1 - cos + sqrt_3 * sin,
+            1 + 2 * cos
+        }
+        / 3;
     }
 };

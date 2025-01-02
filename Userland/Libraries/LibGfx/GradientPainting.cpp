@@ -202,8 +202,7 @@ private:
 static auto create_linear_gradient(IntRect const& physical_rect, ReadonlySpan<ColorStop> color_stops, float angle, Optional<float> repeat_length)
 {
     float normalized_angle = normalized_gradient_angle_radians(angle);
-    float sin_angle, cos_angle;
-    AK::sincos(normalized_angle, sin_angle, cos_angle);
+    auto [sin_angle, cos_angle] = AK::sincos(normalized_angle);
 
     // Full length of the gradient
     auto gradient_length = calculate_gradient_length(physical_rect.size(), sin_angle, cos_angle);
@@ -346,8 +345,7 @@ static auto make_linear_gradient_between_two_points(FloatPoint p0, FloatPoint p1
 {
     auto delta = p1 - p0;
     auto angle = AK::atan2(delta.y(), delta.x());
-    float sin_angle, cos_angle;
-    AK::sincos(angle, sin_angle, cos_angle);
+    auto [sin_angle, cos_angle] = AK::sincos(angle);
     int gradient_length = ceilf(p1.distance_from(p0));
     auto rotated_start_point_x = p0.x() * cos_angle - p0.y() * -sin_angle;
 

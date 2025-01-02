@@ -737,22 +737,29 @@ constexpr T cos(T angle)
 #endif
 }
 
+// FIXME: Maybe make this anonymous?
+//        but the compiler does not like it, as sincos might call back into sin/cos,
+//        which may call into sincos on certain platforms, which fails to deduce the return type.
 template<FloatingPoint T>
-constexpr void sincos(T angle, T& sin_val, T& cos_val)
+struct SinCos {
+    T sin;
+    T cos;
+};
+
+template<FloatingPoint T>
+constexpr SinCos<T> sincos(T angle)
 {
-    if (is_constant_evaluated()) {
-        sin_val = sin(angle);
-        cos_val = cos(angle);
-        return;
-    }
+    if (is_constant_evaluated())
+        return { sin(angle), cos(angle) };
 #if ARCH(X86_64)
+    T sin_val, cos_val;
     asm(
         "fsincos"
         : "=t"(cos_val), "=u"(sin_val)
         : "0"(angle));
+    return { sin_val, cos_val };
 #else
-    sin_val = sin(angle);
-    cos_val = cos(angle);
+    return { sin(angle), cos(angle) };
 #endif
 }
 

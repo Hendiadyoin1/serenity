@@ -19,13 +19,9 @@ namespace Gfx {
 
 void Path::approximate_elliptical_arc_with_cubic_beziers(FloatPoint center, FloatSize radii, float x_axis_rotation, float theta, float theta_delta)
 {
-    float sin_x_rotation;
-    float cos_x_rotation;
-    AK::sincos(x_axis_rotation, sin_x_rotation, cos_x_rotation);
+    auto [sin_x_rotation, cos_x_rotation] = AK::sincos(x_axis_rotation);
     auto arc_point_and_derivative = [&](float t, FloatPoint& point, FloatPoint& derivative) {
-        float sin_angle;
-        float cos_angle;
-        AK::sincos(t, sin_angle, cos_angle);
+        auto [sin_angle, cos_angle] = AK::sincos(t);
         point = FloatPoint {
             center.x()
                 + radii.width() * cos_x_rotation * cos_angle
@@ -72,9 +68,7 @@ void Path::elliptical_arc_to(FloatPoint point, FloatSize radii, float x_axis_rot
     double rx = radii.width();
     double ry = radii.height();
 
-    double x_axis_rotation_s;
-    double x_axis_rotation_c;
-    AK::sincos(static_cast<double>(x_axis_rotation), x_axis_rotation_s, x_axis_rotation_c);
+    auto [x_axis_rotation_s, x_axis_rotation_c] = AK::sincos<double>(x_axis_rotation);
     FloatPoint last_point = this->last_point();
 
     // Step 1 of out-of-range radii correction
@@ -495,10 +489,8 @@ static Vector<FloatPoint, 128> make_pen(float thickness)
     float theta = 0;
     float theta_delta = (AK::Pi<float> * 2) / pen_vertex_count;
     for (int i = 0; i < pen_vertex_count; i++) {
-        float sin_theta;
-        float cos_theta;
-        AK::sincos(theta, sin_theta, cos_theta);
-        pen_vertices.unchecked_append({ cos_theta * thickness / 2, sin_theta * thickness / 2 });
+        auto [sin, cos] = AK::sincos(theta);
+        pen_vertices.unchecked_append({ cos * thickness / 2, sin * thickness / 2 });
         theta -= theta_delta;
     }
 

@@ -63,8 +63,7 @@ constexpr static Matrix4x4<T> scale_matrix(Vector3<T> const& s)
 template<typename T>
 constexpr static Matrix4x4<T> rotation_matrix(Vector3<T> const& axis, T angle)
 {
-    T c, s;
-    AK::sincos(angle, s, c);
+    auto [c, s] = AK::sincos(angle);
     T t = 1 - c;
     T x = axis.x();
     T y = axis.y();

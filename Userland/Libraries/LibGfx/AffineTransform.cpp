@@ -123,9 +123,7 @@ AffineTransform& AffineTransform::multiply(AffineTransform const& other)
 
 AffineTransform& AffineTransform::rotate_radians(float radians)
 {
-    float sin_angle;
-    float cos_angle;
-    AK::sincos(radians, sin_angle, cos_angle);
+    auto [sin_angle, cos_angle] = AK::sincos(radians);
     AffineTransform rotation(cos_angle, sin_angle, -sin_angle, cos_angle, 0, 0);
     multiply(rotation);
     return *this;

@@ -124,9 +124,7 @@ WebIDL::ExceptionOr<void> CanvasPath::ellipse(float x, float y, float radius_x, 
     // To do so, we can pretend that the center of this ellipse is at (0, 0),
     // and the whole coordinate system is rotated `rotation` radians around the x axis, centered on `center`.
     // The sign of the resulting relative positions is just whether our angle is on one of the left quadrants.
-    float sin_rotation;
-    float cos_rotation;
-    AK::sincos(rotation, sin_rotation, cos_rotation);
+    auto [sin_rotation, cos_rotation] = AK::sincos(rotation);
 
     auto resolve_point_with_angle = [&](float angle) {
         auto tan_relative = tanf(angle);
