@@ -670,72 +670,10 @@ constexpr T hypot(T x, T y)
 }
 
 template<FloatingPoint T>
-constexpr T sin(T angle)
-{
-    CONSTEXPR_STATE(sin, angle);
-
-#if ARCH(X86_64)
-    T ret;
-    asm(
-        "fsin"
-        : "=t"(ret)
-        : "0"(angle));
-    return ret;
-#else
-#    if defined(AK_OS_SERENITY)
-    if (angle < 0)
-        return -sin(-angle);
-
-    angle = fmod(angle, 2 * Pi<T>);
-
-    if (angle >= Pi<T>)
-        return -sin(angle - Pi<T>);
-
-    if (angle > Pi<T> / 2)
-        return sin(Pi<T> - angle);
-
-    // https://en.wikipedia.org/wiki/Bh%C4%81skara_I%27s_sine_approximation_formula
-    // FIXME: This is not a good formula! It requires divisions, so it's slow, and it's not very accurate either.
-    return 16 * angle * (Pi<T> - angle) / (5 * Pi<T> * Pi<T> - 4 * angle * (Pi<T> - angle));
-#    else
-    return __builtin_sin(angle);
-#    endif
-#endif
-}
+constexpr T sin(T);
 
 template<FloatingPoint T>
-constexpr T cos(T angle)
-{
-    CONSTEXPR_STATE(cos, angle);
-
-#if ARCH(X86_64)
-    T ret;
-    asm(
-        "fcos"
-        : "=t"(ret)
-        : "0"(angle));
-    return ret;
-#else
-#    if defined(AK_OS_SERENITY)
-    if (angle < 0)
-        return cos(-angle);
-
-    angle = fmod(angle, 2 * Pi<T>);
-
-    if (angle >= Pi<T>)
-        return -cos(angle - Pi<T>);
-
-    if (angle > Pi<T> / 2)
-        return -cos(Pi<T> - angle);
-
-    // https://en.wikipedia.org/wiki/Bh%C4%81skara_I%27s_sine_approximation_formula
-    // FIXME: This is not a good formula! It requires divisions, so it's slow, and it's not very accurate either.
-    return (Pi<T> * Pi<T> - 4 * angle * angle) / (Pi<T> * Pi<T> + angle * angle);
-#    else
-    return __builtin_cos(angle);
-#    endif
-#endif
-}
+constexpr T cos(T);
 
 // FIXME: Maybe make this anonymous?
 //        but the compiler does not like it, as sincos might call back into sin/cos,
@@ -749,18 +687,105 @@ struct SinCos {
 template<FloatingPoint T>
 constexpr SinCos<T> sincos(T angle)
 {
-    if (is_constant_evaluated())
-        return { sin(angle), cos(angle) };
-#if ARCH(X86_64)
-    T sin_val, cos_val;
-    asm(
-        "fsincos"
-        : "=t"(cos_val), "=u"(sin_val)
-        : "0"(angle));
-    return { sin_val, cos_val };
+    if (is_constant_evaluated()) {
+        return SinCos { sin(angle), cos(angle) };
+    }
+// #if ARCH(X86_64)
+//     T sin_val, cos_val;
+//     asm(
+//         "fsincos"
+//         : "=t"(cos_val), "=u"(sin_val)
+//         : "0"(angle));
+//     return SinCos { sin_val, cos_val };
+// #el
+#if defined(AK_OS_SERENITY)
+
+    // This uses a power reduction to just the tip of the hump of cosine
+    // And then uses an fitted polynomial to approximate the cosine,
+    // and derives the sine using the Pythagorean identity.
+    // Then folding the values back
+    // Accuracy ~= 2.655e-05 max error, 1.744e-10 MSE
+    constexpr auto Pi2 = Pi<T> / 2;
+    constexpr auto Pi4 = Pi<T> / 4;
+
+    int octant = static_cast<int>(angle / (Pi4));
+    if (angle < 0)
+        octant += 7;
+    octant = octant % 8;
+
+    // FIXME: I think this is akin to remainder,
+    //        but remainder is a bit more complex, and not sure if we'd need the
+    //        extra precision,
+    //        Also not sure if fmod would work, my testing is inconclusive.
+    T x = angle - (trunc<T>((angle + (Pi4)) / (Pi2)) * (Pi2));
+    if (angle < -(Pi4))
+        x += Pi2;
+    // x in [-pi/4, pi/4]
+
+    constexpr T factor1 = 0.49984248537936027;
+    constexpr T factor2 = 0.040599505106608064;
+    T x2 = x * x;
+    T cos = 1 - x2 * (factor1 - x2 * factor2);
+    T sin = sqrt<T>(1 - cos * cos);
+
+    // x in [pi/4, pi/2] || x in [5pi/4, 3pi/2]
+    if (octant % 4 == 1 || octant % 4 == 2)
+        swap(sin, cos);
+    // x > pi/4 && x < 3pi/4
+    if (octant > 1 && octant < 6)
+        cos = -cos;
+    // x > 3pi/4
+    if (octant > 3)
+        sin = -sin;
+
+    return SinCos { sin, cos };
+
 #else
-    return { sin(angle), cos(angle) };
+    // FIXME: Maybe use __builtin_sincos if available?
+    return SinCos { sin(angle), cos(angle) };
 #endif
+}
+
+template<FloatingPoint T>
+constexpr T sin(T angle)
+{
+    CONSTEXPR_STATE(sin, angle);
+
+    // #if ARCH(X86_64)
+    //     T ret;
+    //     asm(
+    //         "fsin"
+    //         : "=t"(ret)
+    //         : "0"(angle));
+    //     return ret;
+    // #else
+    // #    if defined(AK_OS_SERENITY)
+    return sincos(angle).sin;
+    // #    else
+    //     return __builtin_sin(angle);
+    // #    endif
+    // #endif
+}
+
+template<FloatingPoint T>
+constexpr T cos(T angle)
+{
+    CONSTEXPR_STATE(cos, angle);
+
+    // #if ARCH(X86_64)
+    //     T ret;
+    //     asm(
+    //         "fcos"
+    //         : "=t"(ret)
+    //         : "0"(angle));
+    //     return ret;
+    // #else
+    // #    if defined(AK_OS_SERENITY)
+    return sincos(angle).cos;
+    // #    else
+    //     return __builtin_cos(angle);
+    // #    endif
+    // #endif
 }
 
 template<FloatingPoint T>
