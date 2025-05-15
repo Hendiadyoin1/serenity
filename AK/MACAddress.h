@@ -20,6 +20,10 @@
 
 namespace AK {
 
+class MACAddress;
+template<>
+struct Traits<MACAddress>;
+
 class [[gnu::packed]] MACAddress {
     static constexpr size_t s_mac_address_length = 6u;
 
