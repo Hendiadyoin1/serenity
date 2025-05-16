@@ -91,6 +91,12 @@ private:
 template<>
 struct Traits<FlyString> : public DefaultTraits<FlyString> {
     static unsigned hash(FlyString const&);
+
+    static unsigned hash(Concepts::AnyString auto const& s) { return s.hash(); }
+    static unsigned hash(StringView s) { return s.hash(); }
+
+    static bool equals(FlyString const& a, Concepts::AnyString auto const& b) { return a == b; }
+    static bool equals(FlyString const& a, StringView b) { return a == b; }
 };
 
 template<>
@@ -98,7 +104,7 @@ struct Formatter<FlyString> : Formatter<StringView> {
     ErrorOr<void> format(FormatBuilder&, FlyString const&);
 };
 
-struct ASCIICaseInsensitiveFlyStringTraits : public Traits<String> {
+struct ASCIICaseInsensitiveFlyStringTraits : public DefaultTraits<String> {
     static unsigned hash(FlyString const& s) { return s.ascii_case_insensitive_hash(); }
     static bool equals(FlyString const& a, FlyString const& b) { return a.equals_ignoring_ascii_case(b); }
 };

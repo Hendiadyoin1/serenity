@@ -9,6 +9,7 @@
 #include <AK/Array.h>
 #include <AK/Assertions.h>
 #include <AK/Iterator.h>
+#include <AK/StdLibExtraDetails.h>
 #include <AK/TypedTransfer.h>
 #include <AK/Types.h>
 
@@ -211,7 +212,17 @@ public:
     }
 
     template<typename V>
+    requires(requires(T a, V b) { Traits<RemoveReference<T>>::equals(a, b); })
     [[nodiscard]] constexpr bool contains_slow(V const& value) const
+    {
+        for (size_t i = 0; i < size(); ++i) {
+            if (Traits<RemoveReference<T>>::equals(at(i), value))
+                return true;
+        }
+        return false;
+    }
+
+    [[nodiscard]] constexpr bool contains_slow(T const& value) const
     {
         for (size_t i = 0; i < size(); ++i) {
             if (Traits<RemoveReference<T>>::equals(at(i), value))

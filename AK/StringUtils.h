@@ -10,13 +10,10 @@
 #include <AK/Concepts.h>
 #include <AK/EnumBits.h>
 #include <AK/Forward.h>
+#include <AK/StringHash.h>
+#include <AK/Traits.h>
 
 namespace AK {
-
-namespace Detail {
-template<Concepts::AnyString T, Concepts::AnyString U>
-inline constexpr bool IsHashCompatible<T, U> = true;
-}
 
 enum class CaseSensitivity {
     CaseInsensitive,
@@ -117,6 +114,30 @@ size_t count(StringView, StringView needle);
 size_t count(StringView, char needle);
 
 }
+
+template<typename S>
+struct DefaultStringCompatibleTraits : DefaultTraits<S> {
+    // Note: To use this the `hash` function must be re-exposed in the derived class
+    //       As this does not implement it for the target type and doing so hides the base class'
+    //      implementation of the hash function.
+
+    template<Concepts::AnyString U>
+    requires(!SameAs<U, S> && !SameAs<U, StringView>)
+    static unsigned hash(U const& s)
+    {
+        return Traits<U>::hash(s);
+    }
+    static unsigned hash(SameAs<StringView> auto s) { return Traits<StringView>::hash(s); }
+
+    template<Concepts::AnyString U>
+    requires(!SameAs<U, S> && !SameAs<U, StringView>)
+    static constexpr bool equals(S const& a, U const& b)
+    {
+        return a == b;
+    }
+    static constexpr bool equals(S const& a, SameAs<StringView> auto b) { return a == b; }
+    static constexpr bool equals(S const& a, S const& b) { return a == b; }
+};
 
 }
 

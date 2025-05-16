@@ -10,6 +10,7 @@
 #include <AK/Forward.h>
 #include <AK/NonnullOwnPtr.h>
 #include <AK/RefCounted.h>
+#include <AK/Traits.h>
 
 #define OWNPTR_SCRUB_BYTE 0xf0
 
@@ -18,6 +19,8 @@ namespace AK {
 template<typename T, typename TDeleter>
 class [[nodiscard]] OwnPtr {
 public:
+    using ElementType = T;
+
     OwnPtr() = default;
 
     OwnPtr(decltype(nullptr))
@@ -193,12 +196,7 @@ inline OwnPtr<T> adopt_own_if_nonnull(T* object)
 }
 
 template<typename T>
-struct Traits<OwnPtr<T>> : public DefaultTraits<OwnPtr<T>> {
-    using PeekType = T*;
-    using ConstPeekType = T const*;
-    static unsigned hash(OwnPtr<T> const& p) { return ptr_hash(p.ptr()); }
-    static bool equals(OwnPtr<T> const& a, OwnPtr<T> const& b) { return a.ptr() == b.ptr(); }
-};
+struct Traits<OwnPtr<T>> : public DefaultNullablePointerCompatibleTraits<OwnPtr<T>, NonnullOwnPtr<T>> { };
 
 template<typename T>
 struct Formatter<OwnPtr<T>> : Formatter<T*> {

@@ -736,8 +736,13 @@ struct Formatter<JS::Value> : Formatter<StringView> {
 
 template<>
 struct Traits<JS::Value> : DefaultTraits<JS::Value> {
-    static unsigned hash(JS::Value value) { return Traits<u64>::hash(value.encoded()); }
     static constexpr bool is_trivial() { return true; }
+
+    static unsigned hash(JS::Value value) { return Traits<u64>::hash(value.encoded()); }
+    static unsigned hash(SameAs<JS::Handle<JS::Value>> auto const& handle) { return hash(handle.value()); }
+
+    static bool equals(JS::Value a, JS::Value b) { return a == b; }
+    static bool equals(JS::Value a, SameAs<JS::Handle<JS::Value>> auto const& b) { return a == b; }
 };
 
 }

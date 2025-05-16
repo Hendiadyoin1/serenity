@@ -10,6 +10,7 @@
 #include <AK/Concepts.h>
 #include <AK/Forward.h>
 #include <AK/HashFunctions.h>
+#include <AK/StdLibExtraDetails.h>
 #include <AK/StringHash.h>
 
 namespace AK {
@@ -21,8 +22,13 @@ struct DefaultTraits {
     static constexpr bool is_trivial() { return false; }
     static constexpr bool is_trivially_serializable() { return false; }
     static constexpr bool equals(T const& a, T const& b) { return a == b; }
-    template<Concepts::HashCompatible<T> U>
-    static bool equals(T const& self, U const& other) { return self == other; }
+
+    template<typename U>
+    requires(!IsSame<T, U>)
+    static unsigned hash(U&&) = delete;
+    template<typename U>
+    requires(!IsSame<T, T>)
+    static unsigned equals(T const&, U const&) = delete;
 };
 
 template<typename T>
@@ -64,7 +70,7 @@ struct Traits<T> : public DefaultTraits<T> {
 
 template<typename T>
 requires(IsPointer<T> && !Detail::IsPointerOfType<char, T>) struct Traits<T> : public DefaultTraits<T> {
-    static unsigned hash(T p) { return ptr_hash(bit_cast<FlatPtr>(p)); }
+    static unsigned hash(RemovePointer<T> const* p) { return ptr_hash(bit_cast<FlatPtr>(p)); }
     static constexpr bool is_trivial() { return true; }
 };
 
@@ -80,6 +86,39 @@ requires(Detail::IsPointerOfType<char, T>) struct Traits<T> : public DefaultTrai
     static unsigned hash(T const value) { return string_hash(value, strlen(value)); }
     static constexpr bool equals(T const a, T const b) { return strcmp(a, b); }
     static constexpr bool is_trivial() { return true; }
+};
+
+template<typename P>
+struct DefaultPointerCompatibleTraits {
+    using PeekType = P::ElementType*;
+    using ConstPeekType = P::ElementType const*;
+
+    static constexpr bool is_trivial() { return false; }
+    static constexpr bool is_trivially_serializable() { return false; }
+
+    static unsigned hash(P const& p) { return ptr_hash(p.ptr()); }
+    static unsigned hash(P::ElementType const* p) { return ptr_hash(p); }
+
+    static constexpr bool equals(P const& a, P const& b) { return a.ptr() == b.ptr(); }
+    static constexpr bool equals(P const& a, P::ElementType const* b) { return a.ptr() == b; }
+};
+
+template<typename P, typename Nonnull>
+struct DefaultNullablePointerCompatibleTraits : DefaultPointerCompatibleTraits<P> {
+    using DefaultPointerCompatibleTraits<P>::hash;
+    using DefaultPointerCompatibleTraits<P>::equals;
+
+    static unsigned hash(Nonnull const& p) { return ptr_hash(p.ptr()); }
+    static bool equals(P const& a, Nonnull const& b) { return a.ptr() == b.ptr(); }
+};
+
+// Note: First Argument is the type tried to be used for indexing,
+//       as that is how it is filled in when used in a template
+template<typename U, typename T, typename TraitsForT = Traits<T>>
+concept HashCompatible = requires(T t, U u) {
+    TraitsForT::hash(t);
+    TraitsForT::hash(u);
+    TraitsForT::equals(t, u);
 };
 
 }

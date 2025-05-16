@@ -220,7 +220,17 @@ public:
     }
 
     template<typename V>
+    requires(requires(VisibleType a, V b) { Traits<VisibleType>::equals(a, b); })
     bool contains_slow(V const& value) const
+    {
+        for (size_t i = 0; i < size(); ++i) {
+            if (Traits<VisibleType>::equals(at(i), value))
+                return true;
+        }
+        return false;
+    }
+
+    bool contains_slow(VisibleType const& value) const
     {
         for (size_t i = 0; i < size(); ++i) {
             if (Traits<VisibleType>::equals(at(i), value))

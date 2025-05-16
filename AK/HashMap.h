@@ -74,8 +74,8 @@ public:
         return false;
     }
 
-    template<Concepts::HashCompatible<K> Key>
-    requires(IsSame<KeyTraits, Traits<K>>) bool remove(Key const& key)
+    template<HashCompatible<K> Key>
+    bool remove(Key const& key)
     {
         auto it = find(key);
         if (it != end()) {
@@ -125,20 +125,20 @@ public:
         return m_table.find(hash, predicate);
     }
 
-    template<Concepts::HashCompatible<K> Key>
-    requires(IsSame<KeyTraits, Traits<K>>) [[nodiscard]] IteratorType find(Key const& key)
+    template<HashCompatible<K> Key>
+    [[nodiscard]] IteratorType find(Key const& key)
     {
         if (m_table.is_empty())
             return m_table.end();
-        return m_table.find(Traits<Key>::hash(key), [&](auto& entry) { return Traits<K>::equals(entry.key, key); });
+        return m_table.find(KeyTraits::hash(key), [&](auto& entry) { return KeyTraits::equals(entry.key, key); });
     }
 
-    template<Concepts::HashCompatible<K> Key>
-    requires(IsSame<KeyTraits, Traits<K>>) [[nodiscard]] ConstIteratorType find(Key const& key) const
+    template<HashCompatible<K> Key>
+    [[nodiscard]] ConstIteratorType find(Key const& key) const
     {
         if (m_table.is_empty())
             return m_table.end();
-        return m_table.find(Traits<Key>::hash(key), [&](auto& entry) { return Traits<K>::equals(entry.key, key); });
+        return m_table.find(KeyTraits::hash(key), [&](auto& entry) { return KeyTraits::equals(entry.key, key); });
     }
 
     ErrorOr<void> try_ensure_capacity(size_t capacity) { return m_table.try_ensure_capacity(capacity); }
@@ -172,8 +172,8 @@ public:
         return (*it).value;
     }
 
-    template<Concepts::HashCompatible<K> Key>
-    requires(IsSame<KeyTraits, Traits<K>>) Optional<typename ValueTraits::ConstPeekType> get(Key const& key) const
+    template<HashCompatible<K> Key>
+    Optional<typename ValueTraits::ConstPeekType> get(Key const& key) const
     requires(!IsPointer<typename ValueTraits::PeekType>)
     {
         auto it = find(key);
@@ -182,8 +182,8 @@ public:
         return (*it).value;
     }
 
-    template<Concepts::HashCompatible<K> Key>
-    requires(IsSame<KeyTraits, Traits<K>>) Optional<typename ValueTraits::ConstPeekType> get(Key const& key) const
+    template<HashCompatible<K> Key>
+    Optional<typename ValueTraits::ConstPeekType> get(Key const& key) const
     requires(IsPointer<typename ValueTraits::PeekType>)
     {
         auto it = find(key);
@@ -192,8 +192,8 @@ public:
         return (*it).value;
     }
 
-    template<Concepts::HashCompatible<K> Key>
-    requires(IsSame<KeyTraits, Traits<K>>) Optional<typename ValueTraits::PeekType> get(Key const& key)
+    template<HashCompatible<K> Key>
+    Optional<typename ValueTraits::PeekType> get(Key const& key)
     requires(!IsConst<typename ValueTraits::PeekType>)
     {
         auto it = find(key);
@@ -207,8 +207,8 @@ public:
         return find(key) != end();
     }
 
-    template<Concepts::HashCompatible<K> Key>
-    requires(IsSame<KeyTraits, Traits<K>>) [[nodiscard]] bool contains(Key const& value) const
+    template<HashCompatible<K> Key>
+    [[nodiscard]] bool contains(Key const& value) const
     {
         return find(value) != end();
     }
@@ -230,8 +230,8 @@ public:
         return {};
     }
 
-    template<Concepts::HashCompatible<K> Key>
-    requires(IsSame<KeyTraits, Traits<K>>) Optional<V> take(Key const& key)
+    template<HashCompatible<K> Key>
+    Optional<V> take(Key const& key)
     {
         if (auto it = find(key); it != end()) {
             auto value = move(it->value);

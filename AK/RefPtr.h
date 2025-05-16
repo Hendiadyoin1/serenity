@@ -29,6 +29,8 @@ class [[nodiscard]] RefPtr {
     friend class NonnullRefPtr;
 
 public:
+    using ElementType = T;
+
     enum AdoptTag {
         Adopt
     };
@@ -293,12 +295,7 @@ struct Formatter<RefPtr<T>> : Formatter<T const*> {
 };
 
 template<typename T>
-struct Traits<RefPtr<T>> : public DefaultTraits<RefPtr<T>> {
-    using PeekType = T*;
-    using ConstPeekType = T const*;
-    static unsigned hash(RefPtr<T> const& p) { return ptr_hash(p.ptr()); }
-    static bool equals(RefPtr<T> const& a, RefPtr<T> const& b) { return a.ptr() == b.ptr(); }
-};
+struct Traits<RefPtr<T>> : public DefaultPointerCompatibleTraits<RefPtr<T>> { };
 
 template<typename T, typename U>
 inline NonnullRefPtr<T> static_ptr_cast(NonnullRefPtr<U> const& ptr)

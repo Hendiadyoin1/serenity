@@ -15,22 +15,38 @@
 
 TEST_CASE(hash_compatible)
 {
-    static_assert(AK::Concepts::HashCompatible<String, StringView>);
-    static_assert(AK::Concepts::HashCompatible<String, FlyString>);
-    static_assert(AK::Concepts::HashCompatible<StringView, String>);
-    static_assert(AK::Concepts::HashCompatible<StringView, FlyString>);
-    static_assert(AK::Concepts::HashCompatible<FlyString, String>);
-    static_assert(AK::Concepts::HashCompatible<FlyString, StringView>);
 
-    static_assert(AK::Concepts::HashCompatible<ByteString, StringView>);
-    static_assert(AK::Concepts::HashCompatible<ByteString, DeprecatedFlyString>);
-    static_assert(AK::Concepts::HashCompatible<StringView, ByteString>);
-    static_assert(AK::Concepts::HashCompatible<StringView, DeprecatedFlyString>);
-    static_assert(AK::Concepts::HashCompatible<DeprecatedFlyString, ByteString>);
-    static_assert(AK::Concepts::HashCompatible<DeprecatedFlyString, StringView>);
+    // Note: Main Type is the second type in the pair, as that is how concepts work...
+    {
+        using TraitsForT = AK::Traits<String>;
 
-    static_assert(AK::Concepts::HashCompatible<StringView, ByteBuffer>);
-    static_assert(AK::Concepts::HashCompatible<ByteBuffer, StringView>);
+        static_assert(requires(String s, StringView sv) {
+            { TraitsForT::hash(s) };
+            { TraitsForT::hash(sv) };
+            { TraitsForT::equals(s, sv) };
+        });
+    }
+
+    static_assert(AK::HashCompatible<String, StringView>);
+    static_assert(AK::HashCompatible<FlyString, StringView>);
+    static_assert(AK::HashCompatible<ByteString, StringView>);
+    static_assert(AK::HashCompatible<DeprecatedFlyString, StringView>);
+
+    static_assert(AK::HashCompatible<StringView, String>);
+    static_assert(AK::HashCompatible<FlyString, String>);
+
+    static_assert(AK::HashCompatible<String, FlyString>);
+    static_assert(AK::HashCompatible<StringView, FlyString>);
+
+    static_assert(AK::HashCompatible<StringView, ByteString>);
+    static_assert(AK::HashCompatible<DeprecatedFlyString, ByteString>);
+
+    // FIXME: Previously ByteBuffer was considered to be HashCompatible with all Sting types,
+    //        as it is implicitly convertible to StringView.
+    static_assert(AK::HashCompatible<ByteBuffer, StringView>);
+    // static_assert(AK::HashCompatible<ByteString, DeprecatedFlyString>);
+    // static_assert(AK::HashCompatible<StringView, DeprecatedFlyString>);
+    // static_assert(AK::HashCompatible<StringView, ByteBuffer>);
 }
 
 TEST_CASE(matches_null)

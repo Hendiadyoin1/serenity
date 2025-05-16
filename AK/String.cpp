@@ -304,11 +304,6 @@ bool String::ends_with_bytes(StringView bytes, CaseSensitivity case_sensitivity)
     return bytes_as_string_view().ends_with(bytes, case_sensitivity);
 }
 
-unsigned Traits<String>::hash(String const& string)
-{
-    return string.hash();
-}
-
 ByteString String::to_byte_string() const
 {
     return ByteString(bytes_as_string_view());

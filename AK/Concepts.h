@@ -56,9 +56,6 @@ concept DerivedFrom = IsBaseOf<S, T>;
 template<typename T>
 concept AnyString = IsConstructible<StringView, RemoveCVReference<T> const&>;
 
-template<typename T, typename U>
-concept HashCompatible = IsHashCompatible<Detail::Decay<T>, Detail::Decay<U>>;
-
 // Any indexable, sized, contiguous data structure.
 template<typename ArrayT, typename ContainedT, typename SizeT = size_t>
 concept ArrayLike = requires(ArrayT array, SizeT index) {

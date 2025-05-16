@@ -12,6 +12,7 @@
 #include <AK/RefCounted.h>
 #include <AK/RefPtr.h>
 #include <AK/SourceLocation.h>
+#include <AK/Traits.h>
 #include <LibJS/Forward.h>
 #include <LibJS/Runtime/Value.h>
 
@@ -194,22 +195,30 @@ inline Handle<Value> make_handle(Value value, SourceLocation location = SourceLo
 
 namespace AK {
 
-template<typename T>
-struct Traits<JS::Handle<T>> : public DefaultTraits<JS::Handle<T>> {
-    static unsigned hash(JS::Handle<T> const& handle) { return Traits<T>::hash(handle); }
-};
+// template<typename T>
+// struct Traits<JS::Handle<T>> : public DefaultTraits<JS::Handle<T>> {
+//     static unsigned hash(JS::Handle<T> const& handle) { return Traits<T>::hash(handle); }
+// };
 
 template<>
 struct Traits<JS::Handle<JS::Value>> : public DefaultTraits<JS::Handle<JS::Value>> {
     static unsigned hash(JS::Handle<JS::Value> const& handle) { return Traits<JS::Value>::hash(handle.value()); }
+    static unsigned hash(JS::Value handle) { return Traits<JS::Value>::hash(handle); }
+
+    static bool equals(JS::Handle<JS::Value> const& a, JS::Value b) { return a.value() == b; }
+    static bool equals(JS::Handle<JS::Value> const& a, JS::Handle<JS::Value> const& b) { return a.value() == b.value(); }
 };
 
-namespace Detail {
 template<typename T>
-inline constexpr bool IsHashCompatible<JS::Handle<T>, T> = true;
+struct Traits<JS::Handle<T>> : public DefaultTraits<JS::Handle<T>> {
+    static unsigned hash(JS::Handle<T> const& handle) { return Traits<T>::hash(handle.value()); }
+    static unsigned hash(T const& handle) { return Traits<T>::hash(handle); }
 
-template<typename T>
-inline constexpr bool IsHashCompatible<T, JS::Handle<T>> = true;
+    static bool equals(JS::Handle<T> const& a, T const& b) { return a.value() == b; }
+    static bool equals(JS::Handle<T> const& a, JS::Handle<T> const& b) { return a.value() == b.value(); }
+};
 
-}
+static_assert(HashCompatible<JS::Handle<JS::Value>, JS::Value>);
+static_assert(HashCompatible<JS::Value, JS::Handle<JS::Value>>);
+
 }

@@ -214,8 +214,9 @@ private:
 };
 
 template<>
-struct Traits<String> : public DefaultTraits<String> {
-    static unsigned hash(String const&);
+struct Traits<String> : public DefaultStringCompatibleTraits<String> {
+    using DefaultStringCompatibleTraits<String>::hash;
+    static unsigned hash(String const& s) { return s.hash(); }
 };
 
 template<>
@@ -223,7 +224,7 @@ struct Formatter<String> : Formatter<StringView> {
     ErrorOr<void> format(FormatBuilder&, String const&);
 };
 
-struct ASCIICaseInsensitiveStringTraits : public Traits<String> {
+struct ASCIICaseInsensitiveStringTraits : public DefaultTraits<String> {
     static unsigned hash(String const& s) { return s.ascii_case_insensitive_hash(); }
     static bool equals(String const& a, String const& b) { return a.bytes_as_string_view().equals_ignoring_ascii_case(b.bytes_as_string_view()); }
 };

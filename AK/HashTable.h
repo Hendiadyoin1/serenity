@@ -252,8 +252,8 @@ public:
         return find(value) != end();
     }
 
-    template<Concepts::HashCompatible<T> K>
-    requires(IsSame<TraitsForT, Traits<T>>) [[nodiscard]] bool contains(K const& value) const
+    template<HashCompatible<T, TraitsForT> K>
+    [[nodiscard]] bool contains(K const& value) const
     {
         return find(value) != end();
     }
@@ -397,36 +397,36 @@ public:
     }
     // FIXME: Support for predicates, while guaranteeing that the predicate call
     //        does not call a non trivial constructor each time invoked
-    template<Concepts::HashCompatible<T> K>
-    requires(IsSame<TraitsForT, Traits<T>>) [[nodiscard]] Iterator find(K const& value)
+    template<HashCompatible<T, TraitsForT> K>
+    [[nodiscard]] Iterator find(K const& value)
     {
         if (is_empty())
             return end();
-        return find(Traits<K>::hash(value), [&](auto& entry) { return Traits<T>::equals(entry, value); });
+        return find(TraitsForT::hash(value), [&](auto& entry) { return TraitsForT::equals(entry, value); });
     }
 
-    template<Concepts::HashCompatible<T> K, typename TUnaryPredicate>
-    requires(IsSame<TraitsForT, Traits<T>>) [[nodiscard]] Iterator find(K const& value, TUnaryPredicate predicate)
+    template<HashCompatible<T, TraitsForT> K, typename TUnaryPredicate>
+    [[nodiscard]] Iterator find(K const& value, TUnaryPredicate predicate)
     {
         if (is_empty())
             return end();
-        return find(Traits<K>::hash(value), move(predicate));
+        return find(TraitsForT::hash(value), move(predicate));
     }
 
-    template<Concepts::HashCompatible<T> K>
-    requires(IsSame<TraitsForT, Traits<T>>) [[nodiscard]] ConstIterator find(K const& value) const
+    template<HashCompatible<T, TraitsForT> K>
+    [[nodiscard]] ConstIterator find(K const& value) const
     {
         if (is_empty())
             return end();
-        return find(Traits<K>::hash(value), [&](auto& entry) { return Traits<T>::equals(entry, value); });
+        return find(TraitsForT::hash(value), [&](auto& entry) { return TraitsForT::equals(entry, value); });
     }
 
-    template<Concepts::HashCompatible<T> K, typename TUnaryPredicate>
-    requires(IsSame<TraitsForT, Traits<T>>) [[nodiscard]] ConstIterator find(K const& value, TUnaryPredicate predicate) const
+    template<HashCompatible<T, TraitsForT> K, typename TUnaryPredicate>
+    [[nodiscard]] ConstIterator find(K const& value, TUnaryPredicate predicate) const
     {
         if (is_empty())
             return end();
-        return find(Traits<K>::hash(value), move(predicate));
+        return find(TraitsForT::hash(value), move(predicate));
     }
 
     bool remove(T const& value)
@@ -439,8 +439,8 @@ public:
         return false;
     }
 
-    template<Concepts::HashCompatible<T> K>
-    requires(IsSame<TraitsForT, Traits<T>>) bool remove(K const& value)
+    template<HashCompatible<T, TraitsForT> K>
+    bool remove(K&& value)
     {
         auto it = find(value);
         if (it != end()) {

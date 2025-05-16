@@ -12,6 +12,7 @@
 #include <AK/StringBuilder.h>
 #include <AK/StringImpl.h>
 #include <AK/StringUtils.h>
+#include <AK/StringView.h>
 #include <AK/Traits.h>
 
 namespace AK {
@@ -331,10 +332,16 @@ private:
 template<>
 struct Traits<ByteString> : public DefaultTraits<ByteString> {
     static unsigned hash(ByteString const& s) { return s.impl()->hash(); }
+
+    static unsigned hash(StringView s) { return s.hash(); }
+    static unsigned hash(Concepts::AnyString auto const& s) { return Traits<decltype(s)>::hash(s); }
+
+    static bool equals(ByteString const& a, StringView b) { return a == b; }
+    static bool equals(ByteString const& a, Concepts::AnyString auto const& b) { return a == b; }
 };
 
 // FIXME: Rename this to indicate that it's about ASCII-only case insensitivity.
-struct CaseInsensitiveStringTraits : public Traits<ByteString> {
+struct CaseInsensitiveStringTraits : public DefaultTraits<ByteString> {
     static unsigned hash(ByteString const& s) { return s.impl()->case_insensitive_hash(); }
     static bool equals(ByteString const& a, ByteString const& b) { return a.equals_ignoring_ascii_case(b); }
 };

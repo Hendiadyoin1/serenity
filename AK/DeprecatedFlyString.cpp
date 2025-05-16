@@ -7,6 +7,7 @@
 #include <AK/ByteString.h>
 #include <AK/DeprecatedFlyString.h>
 #include <AK/HashTable.h>
+#include <AK/NonnullRefPtr.h>
 #include <AK/Optional.h>
 #include <AK/Singleton.h>
 #include <AK/StringUtils.h>
@@ -16,10 +17,9 @@ namespace AK {
 
 struct DeprecatedFlyStringImplTraits : public Traits<StringImpl const*> {
     static unsigned hash(StringImpl const* s) { return s->hash(); }
-    static bool equals(StringImpl const* a, StringImpl const* b)
-    {
-        return *a == *b;
-    }
+    static unsigned hash(NonnullRefPtr<StringImpl> const& s) { return s->hash(); }
+    static bool equals(StringImpl const* a, StringImpl const* b) { return *a == *b; }
+    static bool equals(StringImpl const* a, NonnullRefPtr<StringImpl> const& b) { return *a == *b; }
 };
 
 static Singleton<HashTable<StringImpl const*, DeprecatedFlyStringImplTraits>> s_table;

@@ -17,6 +17,8 @@ class GCPtr;
 template<typename T>
 class NonnullGCPtr {
 public:
+    using ElementType = T;
+
     NonnullGCPtr() = delete;
 
     NonnullGCPtr(T& ptr)
@@ -77,6 +79,8 @@ private:
 template<typename T>
 class GCPtr {
 public:
+    using ElementType = T;
+
     constexpr GCPtr() = default;
 
     GCPtr(T& ptr)
@@ -223,19 +227,33 @@ inline bool operator==(NonnullGCPtr<T> const& a, GCPtr<U> const& b)
 namespace AK {
 
 template<typename T>
-struct Traits<JS::GCPtr<T>> : public DefaultTraits<JS::GCPtr<T>> {
-    static unsigned hash(JS::GCPtr<T> const& value)
+struct Traits<JS::GCPtr<T>> : public DefaultNullablePointerCompatibleTraits<JS::GCPtr<T>, JS::NonnullGCPtr<T>> {
+    using PeekType = JS::GCPtr<T>&;
+    using ConstPeekType = JS::GCPtr<T> const&; // FIXME: Propagate const
+
+    using DefaultNullablePointerCompatibleTraits<JS::GCPtr<T>, JS::NonnullGCPtr<T>>::hash;
+    static unsigned hash(T const& value)
     {
-        return Traits<T*>::hash(value.ptr());
+        return Traits<T*>::hash(&value);
+    }
+
+    using DefaultNullablePointerCompatibleTraits<JS::GCPtr<T>, JS::NonnullGCPtr<T>>::equals;
+    static constexpr bool equals(JS::GCPtr<T> const& a, T const& b)
+    {
+        return a.ptr() == &b;
     }
 };
 
 template<typename T>
-struct Traits<JS::NonnullGCPtr<T>> : public DefaultTraits<JS::NonnullGCPtr<T>> {
-    static unsigned hash(JS::NonnullGCPtr<T> const& value)
-    {
-        return Traits<T*>::hash(value.ptr());
-    }
+struct Traits<JS::NonnullGCPtr<T>> : public DefaultPointerCompatibleTraits<JS::NonnullGCPtr<T>> {
+    using PeekType = JS::NonnullGCPtr<T>&;
+    using ConstPeekType = JS::NonnullGCPtr<T> const&; // FIXME: Propagate const better
+
+    using DefaultPointerCompatibleTraits<JS::NonnullGCPtr<T>>::hash;
+    static unsigned hash(T const& value) { return Traits<T*>::hash(&value); }
+
+    using DefaultPointerCompatibleTraits<JS::NonnullGCPtr<T>>::equals;
+    static constexpr bool equals(JS::NonnullGCPtr<T> const& a, T const& b) { return a.ptr() == &b; }
 };
 
 }

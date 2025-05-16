@@ -8,6 +8,7 @@
 
 #include <AK/ByteString.h>
 #include <AK/StringUtils.h>
+#include <AK/Traits.h>
 
 namespace AK {
 
@@ -94,7 +95,8 @@ private:
 };
 
 template<>
-struct Traits<DeprecatedFlyString> : public DefaultTraits<DeprecatedFlyString> {
+struct Traits<DeprecatedFlyString> : public DefaultStringCompatibleTraits<DeprecatedFlyString> {
+    using DefaultStringCompatibleTraits<DeprecatedFlyString>::hash;
     static unsigned hash(DeprecatedFlyString const& s) { return s.hash(); }
 };
 

@@ -23,6 +23,16 @@ struct GridPosition {
     inline bool operator==(GridPosition const&) const = default;
 };
 
+}
+
+namespace AK {
+template<>
+struct Traits<Web::Layout::GridPosition> : public DefaultTraits<Web::Layout::GridPosition> {
+    static unsigned hash(Web::Layout::GridPosition const& key) { return pair_int_hash(key.row, key.column); }
+};
+}
+
+namespace Web::Layout {
 struct GridItem {
     JS::NonnullGCPtr<Box const> box;
 

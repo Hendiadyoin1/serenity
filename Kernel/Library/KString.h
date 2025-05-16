@@ -8,6 +8,8 @@
 
 #include <AK/Format.h>
 #include <AK/OwnPtr.h>
+#include <AK/StringView.h>
+#include <AK/Traits.h>
 
 namespace Kernel {
 
@@ -90,6 +92,7 @@ struct Traits<NonnullOwnPtr<Kernel::KString>> : public DefaultTraits<NonnullOwnP
     using PeekType = Kernel::KString*;
     using ConstPeekType = Kernel::KString const*;
     static unsigned hash(NonnullOwnPtr<Kernel::KString> const& p) { return string_hash(p->characters(), p->length()); }
+    static unsigned hash(StringView s) { return s.hash(); }
     static bool equals(NonnullOwnPtr<Kernel::KString> const& a, NonnullOwnPtr<Kernel::KString> const& b) { return a->view() == b->view(); }
     static bool equals(NonnullOwnPtr<Kernel::KString> const& a, StringView b) { return a->view() == b; }
 };
@@ -104,6 +107,8 @@ struct Traits<OwnPtr<Kernel::KString>> : public DefaultTraits<OwnPtr<Kernel::KSt
             return ptr_hash(nullptr);
         return string_hash(p->characters(), p->length());
     }
+    static unsigned hash(StringView p) { return p.hash(); }
+
     static bool equals(OwnPtr<Kernel::KString> const& a, OwnPtr<Kernel::KString> const& b)
     {
         if (!a || !b)
@@ -120,12 +125,5 @@ struct Traits<OwnPtr<Kernel::KString>> : public DefaultTraits<OwnPtr<Kernel::KSt
         return a->view() == b;
     }
 };
-
-namespace Detail {
-template<>
-inline constexpr bool IsHashCompatible<StringView, NonnullOwnPtr<Kernel::KString>> = true;
-template<>
-inline constexpr bool IsHashCompatible<StringView, OwnPtr<Kernel::KString>> = true;
-}
 
 }

@@ -16,6 +16,20 @@ struct RegistrationKey {
     bool operator==(RegistrationKey const&) const = default;
 };
 
+}
+
+namespace AK {
+template<>
+struct Traits<Web::ServiceWorker::RegistrationKey> : public DefaultTraits<Web::ServiceWorker::RegistrationKey> {
+    static unsigned hash(Web::ServiceWorker::RegistrationKey const& key)
+    {
+        return pair_int_hash(Traits<Web::StorageAPI::StorageKey>::hash(key.key), Traits<ByteString>::hash(key.serialized_scope_url));
+    }
+};
+}
+
+namespace Web::ServiceWorker {
+
 // FIXME: Surely this needs hooks to be cleared and manipulated at the UA level
 //        Does this need to be serialized to disk as well?
 static HashMap<RegistrationKey, Registration> s_registrations;
@@ -103,14 +117,4 @@ ServiceWorker* Registration::newest_worker() const
                                                                         : m_active_worker;
 }
 
-}
-
-namespace AK {
-template<>
-struct Traits<Web::ServiceWorker::RegistrationKey> : public DefaultTraits<Web::ServiceWorker::RegistrationKey> {
-    static unsigned hash(Web::ServiceWorker::RegistrationKey const& key)
-    {
-        return pair_int_hash(Traits<Web::StorageAPI::StorageKey>::hash(key.key), Traits<ByteString>::hash(key.serialized_scope_url));
-    }
-};
 }

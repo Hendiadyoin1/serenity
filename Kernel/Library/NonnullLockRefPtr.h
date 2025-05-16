@@ -329,12 +329,7 @@ requires(IsConvertible<U*, T*>)
 }
 
 template<typename T>
-struct Traits<NonnullLockRefPtr<T>> : public DefaultTraits<NonnullLockRefPtr<T>> {
-    using PeekType = T*;
-    using ConstPeekType = T const*;
-    static unsigned hash(NonnullLockRefPtr<T> const& p) { return ptr_hash(p.ptr()); }
-    static bool equals(NonnullLockRefPtr<T> const& a, NonnullLockRefPtr<T> const& b) { return a.ptr() == b.ptr(); }
-};
+struct Traits<NonnullLockRefPtr<T>> : public DefaultPointerCompatibleTraits<NonnullLockRefPtr<T>> { };
 
 using AK::adopt_lock_ref;
 using AK::NonnullLockRefPtr;

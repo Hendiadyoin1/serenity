@@ -16,6 +16,7 @@
 #include <AK/StdLibExtras.h>
 #include <AK/StringHash.h>
 #include <AK/StringUtils.h>
+#include <AK/Traits.h>
 
 namespace AK {
 
@@ -394,9 +395,12 @@ struct Traits<StringView> : public DefaultTraits<StringView> {
     using PeekType = StringView;
     using ConstPeekType = StringView;
     static unsigned hash(StringView s) { return s.hash(); }
+
+    static unsigned hash(Concepts::AnyString auto const& s) { return s.hash(); }
+    static bool equals(StringView a, Concepts::AnyString auto const& b) { return a == b; }
 };
 
-struct CaseInsensitiveASCIIStringViewTraits : public Traits<StringView> {
+struct CaseInsensitiveASCIIStringViewTraits : public DefaultTraits<StringView> {
     static unsigned hash(StringView s)
     {
         if (s.is_empty())
