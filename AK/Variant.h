@@ -9,6 +9,7 @@
 #include <AK/Array.h>
 #include <AK/Assertions.h>
 #include <AK/BitCast.h>
+#include <AK/Concepts.h>
 #include <AK/StdLibExtraDetails.h>
 #include <AK/StdLibExtras.h>
 #include <AK/StdShim.h>
@@ -27,17 +28,41 @@ consteval IndexType index_of()
     return static_cast<IndexType>(sizeof...(Ts));
 }
 
+// How this works in constexpr:
+// For construction we use a sentinel value (`VariantIndex`)
+// to pass along the desired depth/Type into the constructor chain
+// This is done as we cant easily start the lifetime of the alternatives
+// after the union was instantiated
+// Future c++ features should fix this (see trivial unions (c++26) and std::start_lifetime (c++29))
+// For move and copy assignment we destroy the active member, which seems to be
+// enough to allow us from replacing the whole union from VariantHelper::construct
+template<auto Index>
+struct VariantIndex {
+    static constexpr auto Value = Index;
+};
+
 template<typename IndexType, IndexType CurrentIndex, typename... Ts>
 union VariantStorage;
 
 template<typename IndexType, IndexType CurrentIndex, typename F, typename... Ts>
 union VariantStorage<IndexType, CurrentIndex, F, Ts...> {
     using ElementType = F;
-    using __STORAGE = F[1];
+    static constexpr IndexType Index = CurrentIndex;
+    using __NEXT = VariantStorage<IndexType, CurrentIndex + 1, Ts...>;
 
-    constexpr VariantStorage() = default;
-    constexpr VariantStorage()
-    requires(!IsTriviallyConstructible<F> || (!IsTriviallyConstructible<Ts> || ...))
+    constexpr VariantStorage() {}
+
+    template<IndexType Idx, typename... Us>
+    requires(Idx == CurrentIndex)
+    constexpr VariantStorage(VariantIndex<Idx>, Us&&... args)
+        : value(forward<Us>(args)...)
+    {
+    }
+
+    template<IndexType Idx, typename... Us>
+    requires(Idx > CurrentIndex)
+    constexpr VariantStorage(VariantIndex<Idx>, Us&&... args)
+        : rest(VariantIndex<Idx> {}, forward<Us>(args)...)
     {
     }
 
@@ -70,30 +95,12 @@ union VariantStorage<IndexType, CurrentIndex, F, Ts...> {
     {
     }
 
-    template<IndexType I, typename U>
-    constexpr void construct(U&& val)
-    {
-        if constexpr (I == CurrentIndex) {
-            // FIXME: Begin the lifetime of the storage
-            new (&value[0]) F(forward<U>(val));
-        } else {
-            if constexpr (sizeof...(Ts) == 0)
-                VERIFY_NOT_REACHED();
-            else
-                rest.template construct<I>(forward<U>(val));
-        }
-    }
-
     constexpr void delete_(IndexType id)
     {
         if (id == CurrentIndex) {
-            value[0].~F();
-            // FIXME: Do we need to end the lifetime of the storage array here?
+            value.~F();
         } else {
-            if constexpr (sizeof...(Ts) == 0)
-                VERIFY_NOT_REACHED();
-            else
-                rest.delete_(id);
+            rest.delete_(id);
         }
     }
 
@@ -101,7 +108,7 @@ union VariantStorage<IndexType, CurrentIndex, F, Ts...> {
     constexpr auto&& get(this Self&& self)
     {
         if constexpr (I == CurrentIndex) {
-            return forward<Self>(self).value[0];
+            return forward<Self>(self).value;
         } else {
             return forward<Self>(self).rest.template get<I>();
         }
@@ -110,8 +117,7 @@ union VariantStorage<IndexType, CurrentIndex, F, Ts...> {
     constexpr void move_to(IndexType id, VariantStorage& to)
     {
         if (id == CurrentIndex) {
-            // FIXME: Begin the lifetime of the storage
-            new (&to.value[0]) F(move(value[0]));
+            new (&to.value) F(move(value));
         } else {
             rest.move_to(id, to.rest);
         }
@@ -120,49 +126,64 @@ union VariantStorage<IndexType, CurrentIndex, F, Ts...> {
     constexpr void copy_to(IndexType id, VariantStorage& to) const
     {
         if (id == CurrentIndex) {
-            // FIXME: Begin the lifetime of the storage
-            new (&to.value[0]) F(value[0]);
+            new (&to.value) F(value);
         } else {
             rest.copy_to(id, to.rest);
         }
     }
 
-    __STORAGE value;
-    VariantStorage<IndexType, CurrentIndex + 1, Ts...> rest;
+    char __dummy;
+    F value;
+    __NEXT rest;
 };
 
 template<typename IndexType, IndexType CurrentIndex, typename F>
 union VariantStorage<IndexType, CurrentIndex, F> {
     using ElementType = F;
-    using __STORAGE = F[1];
+    static constexpr IndexType Index = CurrentIndex;
 
-    constexpr VariantStorage() = default;
-    constexpr VariantStorage()
-    requires(!IsTriviallyConstructible<F>)
+    constexpr VariantStorage() {}
+
+    template<IndexType Idx, typename... Us>
+    requires(Idx == CurrentIndex)
+    constexpr VariantStorage(VariantIndex<Idx>, Us&&... args)
+        : value(forward<Us>(args)...)
     {
     }
+
+    constexpr VariantStorage(VariantStorage const&) = default;
+    constexpr VariantStorage(VariantStorage const&)
+    requires(!IsTriviallyCopyConstructible<F>)
+    {
+    }
+
+    constexpr VariantStorage(VariantStorage&&) = default;
+    constexpr VariantStorage(VariantStorage&&)
+    requires(!IsTriviallyMoveConstructible<F>)
+    {
+    }
+    constexpr VariantStorage& operator=(VariantStorage const&) = default;
+    constexpr VariantStorage& operator=(VariantStorage const&)
+    requires(!IsTriviallyCopyAssignable<F>)
+    {
+    }
+
+    constexpr VariantStorage& operator=(VariantStorage&&) = default;
+    constexpr VariantStorage& operator=(VariantStorage&&)
+    requires(!IsTriviallyMoveAssignable<F>)
+    {
+    }
+
     constexpr ~VariantStorage() = default;
     constexpr ~VariantStorage()
     requires(!IsTriviallyDestructible<F>)
     {
     }
 
-    template<IndexType I, typename U>
-    constexpr void construct(U&& val)
-    {
-        if constexpr (I == CurrentIndex) {
-            // FIXME: Begin the lifetime of the storage
-            new (&value[0]) F(forward<U>(val));
-        } else {
-            VERIFY_NOT_REACHED();
-        }
-    }
-
     constexpr void delete_(IndexType id)
     {
         if (id == CurrentIndex) {
-            value[0].~F();
-            // FIXME: Do we need to end the lifetime of the storage array here?
+            value.~F();
         } else {
             VERIFY_NOT_REACHED();
         }
@@ -171,18 +192,15 @@ union VariantStorage<IndexType, CurrentIndex, F> {
     template<IndexType I, typename Self>
     constexpr auto&& get(this Self&& self)
     {
-        if constexpr (I == CurrentIndex) {
-            return forward<Self>(self).value[0];
-        } else {
-            VERIFY_NOT_REACHED();
-        }
+        static_assert(I == CurrentIndex);
+        return forward<Self>(self).value;
     }
 
     constexpr void move_to(IndexType id, VariantStorage& to)
     {
         if (id == CurrentIndex) {
             // FIXME: Begin the lifetime of the storage
-            new (&to.value[0]) F(move(value[0]));
+            new (&to.value) F(move(value));
         } else {
             VERIFY_NOT_REACHED();
         }
@@ -192,13 +210,23 @@ union VariantStorage<IndexType, CurrentIndex, F> {
     {
         if (id == CurrentIndex) {
             // FIXME: Begin the lifetime of the storage
-            new (&to.value[0]) F(value[0]);
+            new (&to.value) F(value);
         } else {
             VERIFY_NOT_REACHED();
         }
     }
 
-    __STORAGE value;
+    char __dummy;
+    F value;
+};
+
+template<typename IndexType>
+struct VariantHelper {
+    template<IndexType TargetIndex, typename Variant, typename... Us>
+    static constexpr void construct(Variant& variant, Us&&... args)
+    {
+        new (&variant) Variant(VariantIndex<TargetIndex> {}, forward<Us>(args)...);
+    }
 };
 
 template<typename IndexType, typename... Ts>
@@ -367,19 +395,21 @@ private:
     template<typename T>
     static constexpr IndexType index_of() { return Detail::index_of<T, IndexType, Ts...>(); }
 
+    using Storage = Detail::VariantStorage<IndexType, 0, Ts...>;
+
 public:
     template<typename T>
     static constexpr bool can_contain() { return IsOneOf<T, Ts...>; }
 
     template<typename... NewTs>
-    Variant(Variant<NewTs...>&& old)
+    constexpr Variant(Variant<NewTs...>&& old)
     requires((can_contain<NewTs>() && ...))
         : Variant(move(old).template downcast<Ts...>())
     {
     }
 
     template<typename... NewTs>
-    Variant(Variant<NewTs...> const& old)
+    constexpr Variant(Variant<NewTs...> const& old)
     requires((can_contain<NewTs>() && ...))
         : Variant(old.template downcast<Ts...>())
     {
@@ -391,13 +421,12 @@ public:
     template<typename T>
     requires(!IsSame<RemoveCVReference<T>, Variant>
         && (IsConstructible<Ts, T> || ...))
-    Variant(T&& t)
+    constexpr Variant(T&& t)
     {
         using BestOverload = BestMatch<T>;
         // FIXME: Can we get the index directly from the resolution?
         constexpr IndexType BestOverloadIndex = index_of<BestOverload>();
-
-        m_data.template construct<BestOverloadIndex>(forward<T>(t));
+        Helper::template construct<BestOverloadIndex>(m_data, forward<T>(t));
         m_index = BestOverloadIndex;
     }
 
@@ -407,7 +436,7 @@ public:
     Variant()
     requires(!can_contain<Empty>())
     = delete;
-    Variant()
+    constexpr Variant()
     requires(can_contain<Empty>())
         : Variant(Empty())
     {
@@ -416,29 +445,29 @@ public:
     Variant(Variant const&)
     requires(!(IsCopyConstructible<Ts> && ...))
     = delete;
-    Variant(Variant const&) = default;
+    constexpr Variant(Variant const&) = default;
 
     Variant(Variant&&)
     requires(!(IsMoveConstructible<Ts> && ...))
     = delete;
-    Variant(Variant&&) = default;
+    constexpr Variant(Variant&&) = default;
 
     ~Variant()
     requires(!(IsDestructible<Ts> && ...))
     = delete;
-    ~Variant() = default;
+    constexpr ~Variant() = default;
 
     Variant& operator=(Variant const&)
     requires(!(IsCopyConstructible<Ts> && ...) || !(IsDestructible<Ts> && ...))
     = delete;
-    Variant& operator=(Variant const&) = default;
+    constexpr Variant& operator=(Variant const&) = default;
 
     Variant& operator=(Variant&&)
     requires(!(IsMoveConstructible<Ts> && ...) || !(IsDestructible<Ts> && ...))
     = delete;
-    Variant& operator=(Variant&&) = default;
+    constexpr Variant& operator=(Variant&&) = default;
 
-    ALWAYS_INLINE Variant(Variant const& old)
+    constexpr Variant(Variant const& old)
     requires(!(IsTriviallyCopyConstructible<Ts> && ...))
         : m_data {}
         , m_index(old.m_index)
@@ -450,20 +479,20 @@ public:
     //       so if a variant containing an int is moved from, it will still contain that int
     //       and if a variant with a nontrivial move ctor is moved from, it may or may not be valid
     //       but it will still contain the "moved-from" state of the object it previously contained.
-    ALWAYS_INLINE Variant(Variant&& old)
+    constexpr Variant(Variant&& old)
     requires(!(IsTriviallyMoveConstructible<Ts> && ...))
         : m_index(old.m_index)
     {
         old.m_data.move_to(old.m_index, m_data);
     }
 
-    ALWAYS_INLINE ~Variant()
+    constexpr ~Variant()
     requires(!(IsTriviallyDestructible<Ts> && ...))
     {
         m_data.delete_(m_index);
     }
 
-    ALWAYS_INLINE Variant& operator=(Variant const& other)
+    constexpr Variant& operator=(Variant const& other)
     requires(!(IsTriviallyCopyConstructible<Ts> && ...) || !(IsTriviallyDestructible<Ts> && ...))
     {
         if (this != &other) {
@@ -476,7 +505,7 @@ public:
         return *this;
     }
 
-    ALWAYS_INLINE Variant& operator=(Variant&& other)
+    constexpr Variant& operator=(Variant&& other)
     requires(!(IsTriviallyMoveConstructible<Ts> && ...) || !(IsTriviallyDestructible<Ts> && ...))
     {
         if (this != &other) {
@@ -490,26 +519,26 @@ public:
     }
 
     template<typename T, typename StrippedT = RemoveCVReference<T>>
-    void set(T&& t)
+    constexpr void set(T&& t)
     requires(can_contain<StrippedT>() && requires { StrippedT(forward<T>(t)); })
     {
         constexpr auto new_index = index_of<StrippedT>();
         m_data.delete_(m_index);
-        m_data.template construct<new_index>(forward<T>(t));
+        Helper::template construct<new_index>(m_data, forward<T>(t));
         m_index = new_index;
     }
 
     template<typename T, typename StrippedT = RemoveCVReference<T>>
-    void set(T&& t, Detail::VariantNoClearTag)
+    constexpr void set(T&& t, Detail::VariantNoClearTag)
     requires(can_contain<StrippedT>() && requires { StrippedT(forward<T>(t)); })
     {
         constexpr auto new_index = index_of<StrippedT>();
-        m_data.template construct<new_index>(forward<T>(t));
+        Helper::template construct<new_index>(m_data, forward<T>(t));
         m_index = new_index;
     }
 
     template<typename T>
-    T* get_pointer()
+    constexpr T* get_pointer()
     requires(can_contain<T>())
     {
         constexpr IndexType I = index_of<T>();
@@ -519,7 +548,7 @@ public:
     }
 
     template<typename T>
-    T& get()
+    constexpr T& get()
     requires(can_contain<T>())
     {
         VERIFY(has<T>());
@@ -528,7 +557,7 @@ public:
     }
 
     template<typename T>
-    T const* get_pointer() const
+    constexpr T const* get_pointer() const
     requires(can_contain<T>())
     {
         constexpr IndexType I = index_of<T>();
@@ -538,7 +567,7 @@ public:
     }
 
     template<typename T>
-    T const& get() const
+    constexpr T const& get() const
     requires(can_contain<T>())
     {
         VERIFY(has<T>());
@@ -547,13 +576,13 @@ public:
     }
 
     template<typename T>
-    [[nodiscard]] bool has() const
+    [[nodiscard]] constexpr bool has() const
     requires(can_contain<T>())
     {
         return index_of<T>() == m_index;
     }
 
-    bool operator==(Variant const& other) const
+    constexpr bool operator==(Variant const& other) const
     {
         return this->visit([&]<typename T>(T const& self) {
             if (auto const* p = other.get_pointer<T>())
@@ -563,14 +592,14 @@ public:
     }
 
     template<typename... Fs>
-    ALWAYS_INLINE decltype(auto) visit(Fs&&... functions)
+    constexpr decltype(auto) visit(Fs&&... functions)
     {
         Visitor<Fs...> visitor { forward<Fs>(functions)... };
         return VisitHelper::visit(*this, move(visitor));
     }
 
     template<typename... Fs>
-    ALWAYS_INLINE decltype(auto) visit(Fs&&... functions) const
+    constexpr decltype(auto) visit(Fs&&... functions) const
     {
         Visitor<Fs...> visitor { forward<Fs>(functions)... };
         return VisitHelper::visit(*this, move(visitor));
@@ -626,6 +655,7 @@ private:
     static constexpr auto data_size = Detail::integer_sequence_generate_array<size_t>(0, IntegerSequence<size_t, sizeof(Ts)...>()).max();
     static constexpr auto data_alignment = Detail::integer_sequence_generate_array<size_t>(0, IntegerSequence<size_t, alignof(Ts)...>()).max();
     using VisitHelper = Detail::VisitImpl<IndexType, Ts...>;
+    using Helper = Detail::VariantHelper<IndexType>;
 
     explicit Variant(IndexType index, Detail::VariantConstructTag)
         : m_index(index)
@@ -650,7 +680,7 @@ private:
         using Fs::operator()...;
     };
 
-    Detail::VariantStorage<IndexType, 0, Ts...> m_data;
+    Storage m_data;
     IndexType m_index;
 };
 
