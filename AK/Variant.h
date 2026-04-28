@@ -7,9 +7,11 @@
 #pragma once
 
 #include <AK/Array.h>
+#include <AK/Assertions.h>
 #include <AK/BitCast.h>
 #include <AK/StdLibExtraDetails.h>
 #include <AK/StdLibExtras.h>
+#include <AK/StdShim.h>
 #include <AK/TypeList.h>
 
 namespace AK::Detail {
@@ -26,40 +28,177 @@ consteval IndexType index_of()
 }
 
 template<typename IndexType, IndexType CurrentIndex, typename... Ts>
-struct Variant;
+union VariantStorage;
 
 template<typename IndexType, IndexType CurrentIndex, typename F, typename... Ts>
-struct Variant<IndexType, CurrentIndex, F, Ts...> {
-    ALWAYS_INLINE static void delete_(IndexType id, void* data)
+union VariantStorage<IndexType, CurrentIndex, F, Ts...> {
+    using ElementType = F;
+    using __STORAGE = F[1];
+
+    constexpr VariantStorage() = default;
+    constexpr VariantStorage()
+    requires(!IsTriviallyConstructible<F> || (!IsTriviallyConstructible<Ts> || ...))
     {
-        if (id == CurrentIndex)
-            bit_cast<F*>(data)->~F();
-        else
-            Variant<IndexType, CurrentIndex + 1, Ts...>::delete_(id, data);
     }
 
-    ALWAYS_INLINE static void move_(IndexType old_id, void* old_data, void* new_data)
+    constexpr VariantStorage(VariantStorage const&) = default;
+    constexpr VariantStorage(VariantStorage const&)
+    requires(!IsTriviallyCopyConstructible<F> || (!IsTriviallyCopyConstructible<Ts> || ...))
     {
-        if (old_id == CurrentIndex)
-            new (new_data) F(move(*bit_cast<F*>(old_data)));
-        else
-            Variant<IndexType, CurrentIndex + 1, Ts...>::move_(old_id, old_data, new_data);
     }
 
-    ALWAYS_INLINE static void copy_(IndexType old_id, void const* old_data, void* new_data)
+    constexpr VariantStorage(VariantStorage&&) = default;
+    constexpr VariantStorage(VariantStorage&&)
+    requires(!IsTriviallyMoveConstructible<F> || (!IsTriviallyMoveConstructible<Ts> || ...))
     {
-        if (old_id == CurrentIndex)
-            new (new_data) F(*bit_cast<F const*>(old_data));
-        else
-            Variant<IndexType, CurrentIndex + 1, Ts...>::copy_(old_id, old_data, new_data);
     }
+    constexpr VariantStorage& operator=(VariantStorage const&) = default;
+    constexpr VariantStorage& operator=(VariantStorage const&)
+    requires(!IsTriviallyCopyAssignable<F> || (!IsTriviallyCopyAssignable<Ts> || ...))
+    {
+    }
+
+    constexpr VariantStorage& operator=(VariantStorage&&) = default;
+    constexpr VariantStorage& operator=(VariantStorage&&)
+    requires(!IsTriviallyMoveAssignable<F> || (!IsTriviallyMoveAssignable<Ts> || ...))
+    {
+    }
+
+    constexpr ~VariantStorage() = default;
+    constexpr ~VariantStorage()
+    requires(!IsTriviallyDestructible<F> || (!IsTriviallyDestructible<Ts> || ...))
+    {
+    }
+
+    template<IndexType I, typename U>
+    constexpr void construct(U&& val)
+    {
+        if constexpr (I == CurrentIndex) {
+            // FIXME: Begin the lifetime of the storage
+            new (&value[0]) F(forward<U>(val));
+        } else {
+            if constexpr (sizeof...(Ts) == 0)
+                VERIFY_NOT_REACHED();
+            else
+                rest.template construct<I>(forward<U>(val));
+        }
+    }
+
+    constexpr void delete_(IndexType id)
+    {
+        if (id == CurrentIndex) {
+            value[0].~F();
+            // FIXME: Do we need to end the lifetime of the storage array here?
+        } else {
+            if constexpr (sizeof...(Ts) == 0)
+                VERIFY_NOT_REACHED();
+            else
+                rest.delete_(id);
+        }
+    }
+
+    template<IndexType I, typename Self>
+    constexpr auto&& get(this Self&& self)
+    {
+        if constexpr (I == CurrentIndex) {
+            return forward<Self>(self).value[0];
+        } else {
+            return forward<Self>(self).rest.template get<I>();
+        }
+    }
+
+    constexpr void move_to(IndexType id, VariantStorage& to)
+    {
+        if (id == CurrentIndex) {
+            // FIXME: Begin the lifetime of the storage
+            new (&to.value[0]) F(move(value[0]));
+        } else {
+            rest.move_to(id, to.rest);
+        }
+    }
+
+    constexpr void copy_to(IndexType id, VariantStorage& to) const
+    {
+        if (id == CurrentIndex) {
+            // FIXME: Begin the lifetime of the storage
+            new (&to.value[0]) F(value[0]);
+        } else {
+            rest.copy_to(id, to.rest);
+        }
+    }
+
+    __STORAGE value;
+    VariantStorage<IndexType, CurrentIndex + 1, Ts...> rest;
 };
 
-template<typename IndexType, IndexType CurrentIndex>
-struct Variant<IndexType, CurrentIndex> {
-    ALWAYS_INLINE static void delete_(IndexType, void*) { }
-    ALWAYS_INLINE static void move_(IndexType, void*, void*) { }
-    ALWAYS_INLINE static void copy_(IndexType, void const*, void*) { }
+template<typename IndexType, IndexType CurrentIndex, typename F>
+union VariantStorage<IndexType, CurrentIndex, F> {
+    using ElementType = F;
+    using __STORAGE = F[1];
+
+    constexpr VariantStorage() = default;
+    constexpr VariantStorage()
+    requires(!IsTriviallyConstructible<F>)
+    {
+    }
+    constexpr ~VariantStorage() = default;
+    constexpr ~VariantStorage()
+    requires(!IsTriviallyDestructible<F>)
+    {
+    }
+
+    template<IndexType I, typename U>
+    constexpr void construct(U&& val)
+    {
+        if constexpr (I == CurrentIndex) {
+            // FIXME: Begin the lifetime of the storage
+            new (&value[0]) F(forward<U>(val));
+        } else {
+            VERIFY_NOT_REACHED();
+        }
+    }
+
+    constexpr void delete_(IndexType id)
+    {
+        if (id == CurrentIndex) {
+            value[0].~F();
+            // FIXME: Do we need to end the lifetime of the storage array here?
+        } else {
+            VERIFY_NOT_REACHED();
+        }
+    }
+
+    template<IndexType I, typename Self>
+    constexpr auto&& get(this Self&& self)
+    {
+        if constexpr (I == CurrentIndex) {
+            return forward<Self>(self).value[0];
+        } else {
+            VERIFY_NOT_REACHED();
+        }
+    }
+
+    constexpr void move_to(IndexType id, VariantStorage& to)
+    {
+        if (id == CurrentIndex) {
+            // FIXME: Begin the lifetime of the storage
+            new (&to.value[0]) F(move(value[0]));
+        } else {
+            VERIFY_NOT_REACHED();
+        }
+    }
+
+    constexpr void copy_to(IndexType id, VariantStorage& to) const
+    {
+        if (id == CurrentIndex) {
+            // FIXME: Begin the lifetime of the storage
+            new (&to.value[0]) F(value[0]);
+        } else {
+            VERIFY_NOT_REACHED();
+        }
+    }
+
+    __STORAGE value;
 };
 
 template<typename IndexType, typename... Ts>
@@ -255,9 +394,10 @@ public:
     Variant(T&& t)
     {
         using BestOverload = BestMatch<T>;
+        // FIXME: Can we get the index directly from the resolution?
         constexpr IndexType BestOverloadIndex = index_of<BestOverload>();
 
-        new (m_data) BestOverload(forward<T>(t));
+        m_data.template construct<BestOverloadIndex>(forward<T>(t));
         m_index = BestOverloadIndex;
     }
 
@@ -303,7 +443,7 @@ public:
         : m_data {}
         , m_index(old.m_index)
     {
-        Helper::copy_(old.m_index, old.m_data, m_data);
+        old.m_data.copy_to(old.m_index, m_data);
     }
 
     // Note: A moved-from variant emulates the state of the object it contains
@@ -314,13 +454,13 @@ public:
     requires(!(IsTriviallyMoveConstructible<Ts> && ...))
         : m_index(old.m_index)
     {
-        Helper::move_(old.m_index, old.m_data, m_data);
+        old.m_data.move_to(old.m_index, m_data);
     }
 
     ALWAYS_INLINE ~Variant()
     requires(!(IsTriviallyDestructible<Ts> && ...))
     {
-        Helper::delete_(m_index, m_data);
+        m_data.delete_(m_index);
     }
 
     ALWAYS_INLINE Variant& operator=(Variant const& other)
@@ -328,10 +468,10 @@ public:
     {
         if (this != &other) {
             if constexpr (!(IsTriviallyDestructible<Ts> && ...)) {
-                Helper::delete_(m_index, m_data);
+                m_data.delete_(m_index);
             }
             m_index = other.m_index;
-            Helper::copy_(other.m_index, other.m_data, m_data);
+            other.m_data.copy_to(other.m_index, m_data);
         }
         return *this;
     }
@@ -341,10 +481,10 @@ public:
     {
         if (this != &other) {
             if constexpr (!(IsTriviallyDestructible<Ts> && ...)) {
-                Helper::delete_(m_index, m_data);
+                m_data.delete_(m_index);
             }
             m_index = other.m_index;
-            Helper::move_(other.m_index, other.m_data, m_data);
+            other.m_data.move_to(other.m_index, m_data);
         }
         return *this;
     }
@@ -354,8 +494,8 @@ public:
     requires(can_contain<StrippedT>() && requires { StrippedT(forward<T>(t)); })
     {
         constexpr auto new_index = index_of<StrippedT>();
-        Helper::delete_(m_index, m_data);
-        new (m_data) StrippedT(forward<T>(t));
+        m_data.delete_(m_index);
+        m_data.template construct<new_index>(forward<T>(t));
         m_index = new_index;
     }
 
@@ -364,7 +504,7 @@ public:
     requires(can_contain<StrippedT>() && requires { StrippedT(forward<T>(t)); })
     {
         constexpr auto new_index = index_of<StrippedT>();
-        new (m_data) StrippedT(forward<T>(t));
+        m_data.template construct<new_index>(forward<T>(t));
         m_index = new_index;
     }
 
@@ -372,8 +512,9 @@ public:
     T* get_pointer()
     requires(can_contain<T>())
     {
-        if (index_of<T>() == m_index)
-            return bit_cast<T*>(&m_data);
+        constexpr IndexType I = index_of<T>();
+        if (I == m_index)
+            return &m_data.template get<I>();
         return nullptr;
     }
 
@@ -382,15 +523,17 @@ public:
     requires(can_contain<T>())
     {
         VERIFY(has<T>());
-        return *bit_cast<T*>(&m_data);
+        constexpr IndexType I = index_of<T>();
+        return m_data.template get<I>();
     }
 
     template<typename T>
     T const* get_pointer() const
     requires(can_contain<T>())
     {
-        if (index_of<T>() == m_index)
-            return bit_cast<T const*>(&m_data);
+        constexpr IndexType I = index_of<T>();
+        if (I == m_index)
+            return &m_data.template get<I>();
         return nullptr;
     }
 
@@ -399,7 +542,8 @@ public:
     requires(can_contain<T>())
     {
         VERIFY(has<T>());
-        return *bit_cast<T const*>(&m_data);
+        constexpr IndexType I = index_of<T>();
+        return m_data.template get<I>();
     }
 
     template<typename T>
@@ -481,7 +625,6 @@ private:
 
     static constexpr auto data_size = Detail::integer_sequence_generate_array<size_t>(0, IntegerSequence<size_t, sizeof(Ts)...>()).max();
     static constexpr auto data_alignment = Detail::integer_sequence_generate_array<size_t>(0, IntegerSequence<size_t, alignof(Ts)...>()).max();
-    using Helper = Detail::Variant<IndexType, 0, Ts...>;
     using VisitHelper = Detail::VisitImpl<IndexType, Ts...>;
 
     explicit Variant(IndexType index, Detail::VariantConstructTag)
@@ -507,15 +650,12 @@ private:
         using Fs::operator()...;
     };
 
-    // Note: Make sure not to default-initialize!
-    //       VariantConstructors::VariantConstructors(T) will set this to the correct value
-    //       So default-constructing to anything will leave the first initialization with that value instead of the correct one.
-    alignas(data_alignment) u8 m_data[data_size];
+    Detail::VariantStorage<IndexType, 0, Ts...> m_data;
     IndexType m_index;
 };
 
 template<typename... Ts>
-struct TypeList<Variant<Ts...>> : TypeList<Ts...> { };
+struct TypeList<Variant<Ts...>> : TypeList<Ts...> {};
 
 }
 
