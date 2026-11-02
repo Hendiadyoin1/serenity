@@ -27,3 +27,10 @@ struct V3DJob {
     u32 rendering_control_list_address;
     u32 rendering_control_list_size;
 };
+
+// XXX: For libgpu-linux-shim
+#ifdef AK_OS_LINUX
+#    define V3D_ALLOCATE_BUFFER 0xcccc0000
+#    define V3D_FREE_BUFFER 0xcccc0001
+#    define V3D_SUBMIT_JOB 0xcccc0002
+#endif

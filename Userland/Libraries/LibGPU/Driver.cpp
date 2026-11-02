@@ -22,6 +22,7 @@ static HashMap<StringView, char const*> const s_driver_path_map {
     { "softgpu"sv, "liblagom-softgpu.dylib" },
 #else
     { "softgpu"sv, "liblagom-softgpu.so.0" },
+    { "v3dgpu"sv, "liblagom-v3dgpu.so.0" },
 #endif
 };
 
