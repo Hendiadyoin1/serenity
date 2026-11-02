@@ -12,6 +12,10 @@
 
 namespace V3DGPU {
 
+#ifndef AK_OS_SERENITY
+#    define MAP_RANDOMIZED 0
+#endif
+
 extern int g_v3d_fd;
 
 Buffer::~Buffer()
