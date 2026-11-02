@@ -101,8 +101,14 @@ ErrorOr<ControlList> Device::generate_tile_list(u32 target_buffer_pitch, u32 tar
     store_tile_buffer_general.address = target_buffer_address;
     control_list.append(store_tile_buffer_general);
 
-    ControlRecord::ClearRenderTargets clear_render_targets {};
-    control_list.append(clear_render_targets);
+    if (m_version == ControlRecord::Version::V71) {
+        ControlRecord::ClearRenderTargets clear_render_targets {};
+        control_list.append(clear_render_targets);
+    } else {
+        ControlRecord::ClearTileBuffers clear_tile_buffer {};
+        clear_tile_buffer.clear_all_render_targets = true;
+        control_list.append(clear_tile_buffer);
+    }
 
     ControlRecord::EndOfTileMarker end_of_tile_marker {};
     control_list.append(end_of_tile_marker);
@@ -131,10 +137,14 @@ ErrorOr<Device::RenderControlList> Device::generate_render_control_list_v42(u32 
     tile_rendering_mode_cfg_common.multisample_mode_4x = false;
     tile_rendering_mode_cfg_common.double_buffer_in_non_ms_mode = false;
     tile_rendering_mode_cfg_common.early_z_test_and_update_direction = ControlRecord::TileRenderingModeCfgCommon::EarlyZTestAndUpdateDirection::LT_LE;
-    tile_rendering_mode_cfg_common.early_z_disable = false;
+    tile_rendering_mode_cfg_common.early_z_disable = true;
     tile_rendering_mode_cfg_common.internal_depth_type = ControlRecord::InternalDepthType::Depth16;
     tile_rendering_mode_cfg_common.early_depth_stencil_clear = true;
     control_list.append(tile_rendering_mode_cfg_common);
+
+    ControlRecord::TileRenderingModeCfgColorPart1 clear_color {};
+    clear_color.clear_color_low = m_clear_color;
+    control_list.append(clear_color);
 
     ControlRecord::TileRenderingModeCfgColor tile_rendering_mode_cfg_color {};
     tile_rendering_mode_cfg_color.render_target_1_bpp = ControlRecord::InternalBPP::BPP32;
@@ -195,7 +205,7 @@ ErrorOr<Device::RenderControlList> Device::generate_render_control_list_v42(u32 
 
     ControlRecord::ClearTileBuffers clear_tile_buffers {};
     clear_tile_buffers.clear_all_render_targets = true;
-    clear_tile_buffers.clear_z_stencil_buffers = true;
+    clear_tile_buffers.clear_z_stencil_buffers = false;
     control_list.append(clear_tile_buffers);
 
     ControlRecord::EndOfTileMarker end_of_tile_marker {};

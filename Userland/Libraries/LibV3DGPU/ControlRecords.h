@@ -376,6 +376,16 @@ struct [[gnu::packed]] TileRenderingModeCfgZSClearValues {
 };
 static_assert(AssertSize<TileRenderingModeCfgZSClearValues, 1 + 8>());
 
+// <packet code="121" name="Tile Rendering Mode Cfg (Clear Colors Part1)" cl="R"  max_ver="42">
+struct [[gnu::packed]] TileRenderingModeCfgColorPart1 {
+    Opcode opcode = 121;
+    u8 sub_id : 4 = 3;
+    u8 _ : 4;
+    u32 clear_color_low : 32;
+    u32 clear_color_next : 24;
+};
+static_assert(AssertSize<TileRenderingModeCfgColorPart1, 1 + 8>());
+
 // <packet code="121" name="Tile Rendering Mode Cfg (Color)" cl="R"  max_ver="42">
 struct [[gnu::packed]] TileRenderingModeCfgColor {
     Opcode opcode = 121;
