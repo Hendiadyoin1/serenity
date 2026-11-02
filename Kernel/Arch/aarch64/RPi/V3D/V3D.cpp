@@ -21,11 +21,11 @@ namespace Kernel::RPi::V3D {
 
 ErrorOr<NonnullRefPtr<V3D>> V3D::create(DeviceTree::Device::Resource hub_registers_resource, DeviceTree::Device::Resource core_0_registers_resource, InterruptNumber hub_interrupt_number, Optional<InterruptNumber> core_interrupt_number)
 {
-    if (hub_registers_resource.size < sizeof(HubRegisters))
-        return EINVAL;
-
-    if (core_0_registers_resource.size < sizeof(CoreRegisters))
-        return EINVAL;
+    // if (hub_registers_resource.size < sizeof(HubRegisters))
+    //     return EINVAL;
+    //
+    // if (core_0_registers_resource.size < sizeof(CoreRegisters))
+    //     return EINVAL;
 
     auto hub_registers = TRY(Memory::map_typed_writable<HubRegisters volatile>(hub_registers_resource.paddr));
     auto core_0_registers = TRY(Memory::map_typed_writable<CoreRegisters volatile>(core_0_registers_resource.paddr));
@@ -38,11 +38,13 @@ ErrorOr<NonnullRefPtr<V3D>> V3D::create(DeviceTree::Device::Resource hub_registe
 
 void V3D::map_buffer(PageTable& page_table, GPUVirtualAddress gpu_vaddr, Memory::VMObject const& vmobject)
 {
+    VERIFY(gpu_vaddr.get() == vmobject.physical_pages()[0]->paddr().get());
     page_table.insert_entries_for_buffer({}, gpu_vaddr, vmobject);
 }
 
 void V3D::unmap_buffer(PageTable& page_table, GPUVirtualAddress gpu_vaddr, Memory::VMObject const& vmobject)
 {
+    VERIFY(gpu_vaddr.get() == vmobject.physical_pages()[0]->paddr().get());
     page_table.remove_entries_for_buffer({}, gpu_vaddr, vmobject);
     flush_mmu_cache_and_tlb();
 }
@@ -94,8 +96,8 @@ ErrorOr<void> V3D::submit_job(PageTable const& page_table, V3DJob const& job)
     });
 
     if (binning_job_wait_result.is_error()) {
-        dbgln("V3D: Binning job was interrupted!");
-        dbgln("V3D: FIXME: Don't know how to cancel/abort jobs. The GPU might be in an undefined state now.");
+        dmesgln("V3D: Binning job was interrupted!");
+        dmesgln("V3D: FIXME: Don't know how to cancel/abort jobs. The GPU might be in an undefined state now.");
 
         return binning_job_wait_result.release_error();
     }
@@ -113,8 +115,8 @@ ErrorOr<void> V3D::submit_job(PageTable const& page_table, V3DJob const& job)
     });
 
     if (render_job_wait_result.is_error()) {
-        dbgln("V3D: Render job was interrupted!");
-        dbgln("V3D: FIXME: Don't know how to cancel/abort jobs. The GPU might be in an undefined state now.");
+        dmesgln("V3D: Render job was interrupted!");
+        dmesgln("V3D: FIXME: Don't know how to cancel/abort jobs. The GPU might be in an undefined state now.");
 
         return render_job_wait_result.release_error();
     }
@@ -133,49 +135,54 @@ V3D::V3D(Memory::TypedMapping<HubRegisters volatile> hub_registers, Memory::Type
 
 ErrorOr<void> V3D::initialize()
 {
+    dmesgln("y");
     m_device_node = TRY(DeviceNode::create(*this));
 
     m_illegal_vaddr_target_page = TRY(MM.allocate_physical_page(Memory::MemoryManager::ShouldZeroFill::Yes, nullptr, Memory::MemoryType::NonCacheable));
-
+    dmesgln("V3D: init");
     // Ensure zeroing of the illegal vaddr target page is visible before giving it to the GPU.
     store_memory_fence();
+
+    dmesgln("z");
 
     m_hub_registers->mmu_0.illegal_vaddr_target_paddr = (m_illegal_vaddr_target_page->paddr().get() >> V3D_PAGE_SHIFT)
         | HubRegisters::ILLEGAL_VADDR_TARGET_PADDR_VALID;
 
-    m_hub_registers->mmu_0.control = HubRegisters::MMUControl::Enable
-        | HubRegisters::MMUControl::WriteViolationInterrupt
-        | HubRegisters::MMUControl::WriteViolationAbort
-        | HubRegisters::MMUControl::InvalidPageTableEntryEnable
-        | HubRegisters::MMUControl::InvalidPageTableEntryInterrupt
-        | HubRegisters::MMUControl::InvalidPageTableEntryAbort
-        | HubRegisters::MMUControl::CapExceededInterrupt
-        | HubRegisters::MMUControl::CapExceededAbort;
-    m_hub_registers->mmu_0.mmu_cache_control = HubRegisters::MMUCacheControl::Enable;
+    // m_hub_registers->mmu_0.control = HubRegisters::MMUControl::Enable
+    //     | HubRegisters::MMUControl::WriteViolationInterrupt
+    //     | HubRegisters::MMUControl::WriteViolationAbort
+    //     | HubRegisters::MMUControl::InvalidPageTableEntryEnable
+    //     | HubRegisters::MMUControl::InvalidPageTableEntryInterrupt
+    //     | HubRegisters::MMUControl::InvalidPageTableEntryAbort
+    //     | HubRegisters::MMUControl::CapExceededInterrupt
+    //     | HubRegisters::MMUControl::CapExceededAbort;
+    // m_hub_registers->mmu_0.mmu_cache_control = HubRegisters::MMUCacheControl::Enable;
 
+    dmesgln("1");
     flush_mmu_cache_and_tlb();
+    dmesgln("2");
 
-    m_hub_registers->interrupt_mask_clear = HubRegisters::Interrupt::MMUCapExceeded
-        | HubRegisters::Interrupt::MMUPageTableEntryInvalid
-        | HubRegisters::Interrupt::MMUWriteViolation;
-
-    m_core_0_registers->interrupt_mask_clear = CoreRegisters::Interrupt::RenderModeFrameDone
-        | CoreRegisters::Interrupt::BinningModeFlushDone
-        | CoreRegisters::Interrupt::BinnerOutOfMemory
-        | CoreRegisters::Interrupt::BinnerOverspillMemoryInUse;
+    // m_hub_registers->interrupt_mask_clear = HubRegisters::Interrupt::MMUCapExceeded
+    //     | HubRegisters::Interrupt::MMUPageTableEntryInvalid
+    //     | HubRegisters::Interrupt::MMUWriteViolation;
+    //
+    // m_core_0_registers->interrupt_mask_clear = CoreRegisters::Interrupt::RenderModeFrameDone
+    //     | CoreRegisters::Interrupt::BinningModeFlushDone
+    //     | CoreRegisters::Interrupt::BinnerOutOfMemory
+    //     | CoreRegisters::Interrupt::BinnerOverspillMemoryInUse;
 
     return {};
 }
 
 void V3D::flush_mmu_cache_and_tlb()
 {
-    m_hub_registers->mmu_0.mmu_cache_control |= HubRegisters::MMUCacheControl::Flush;
-    while (has_flag(m_hub_registers->mmu_0.mmu_cache_control, HubRegisters::MMUCacheControl::Flushing))
-        Processor::wait_check();
-
-    m_hub_registers->mmu_0.control |= HubRegisters::MMUControl::TLBClear;
-    while (has_flag(m_hub_registers->mmu_0.control, HubRegisters::MMUControl::TLBClearing))
-        Processor::wait_check();
+    // m_hub_registers->mmu_0.mmu_cache_control |= HubRegisters::MMUCacheControl::Flush;
+    // while (has_flag(m_hub_registers->mmu_0.mmu_cache_control, HubRegisters::MMUCacheControl::Flushing))
+    //     Processor::wait_check();
+    //
+    // m_hub_registers->mmu_0.control |= HubRegisters::MMUControl::TLBClear;
+    // while (has_flag(m_hub_registers->mmu_0.control, HubRegisters::MMUControl::TLBClearing))
+    //     Processor::wait_check();
 }
 
 void V3D::flush_caches()
@@ -210,20 +217,20 @@ bool V3D::handle_interrupt()
     m_hub_registers->interrupt_clear_pending = hub_interrupts;
 
     if (has_any_flag(hub_interrupts, HubRegisters::Interrupt::MMUCapExceeded | HubRegisters::Interrupt::MMUPageTableEntryInvalid | HubRegisters::Interrupt::MMUWriteViolation)) {
-        dbgln("V3D: Page fault!");
+        dmesgln("V3D: Page fault!");
 
         if (has_flag(hub_interrupts, HubRegisters::Interrupt::MMUCapExceeded))
-            dbgln("V3D: Cap exceeded");
+            dmesgln("V3D: Cap exceeded");
         if (has_flag(hub_interrupts, HubRegisters::Interrupt::MMUPageTableEntryInvalid))
-            dbgln("V3D: PTE invalid");
+            dmesgln("V3D: PTE invalid");
         if (has_flag(hub_interrupts, HubRegisters::Interrupt::MMUWriteViolation))
-            dbgln("V3D: Write violation");
+            dmesgln("V3D: Write violation");
 
         auto vaddr = m_hub_registers->mmu_0.fault_vaddr << 4u;
         auto fault_axi_id = m_hub_registers->mmu_0.fault_axi_id;
 
-        dbgln("V3D: Fault GPU virtual address: {:#08x}", vaddr);
-        dbgln("V3D: Fault AXI ID: {:#08x}", fault_axi_id);
+        dmesgln("V3D: Fault GPU virtual address: {:#08x}", vaddr);
+        dmesgln("V3D: Fault AXI ID: {:#08x}", fault_axi_id);
     }
 
     // Handle core interrupt(s).
@@ -241,17 +248,18 @@ bool V3D::handle_interrupt()
         m_current_render_job_finished_wait_queue.notify_all();
     }
     if (has_flag(core_interrupts, CoreRegisters::Interrupt::BinnerOutOfMemory)) {
-        dbgln("V3D: Binner out of memory! FIXME: Allocate overspill memory.");
+        dmesgln("V3D: Binner out of memory! FIXME: Allocate overspill memory.");
     }
     if (has_flag(core_interrupts, CoreRegisters::Interrupt::BinnerOverspillMemoryInUse)) {
-        dbgln("V3D: Binner overspill memory in use");
+        dmesgln("V3D: Binner overspill memory in use");
     }
 
     return to_underlying(hub_interrupts) != 0 || to_underlying(core_interrupts) != 0;
 }
 
 static constinit Array const compatibles_array = {
-    "brcm,2712-v3d"sv,
+    "brcm,2711-v3d"sv, // Pi 4b - VC VI
+    "brcm,2712-v3d"sv, // Pi 5 - VC VII
 };
 
 DEVICETREE_DRIVER(V3DDriver, compatibles_array);
@@ -259,10 +267,14 @@ DEVICETREE_DRIVER(V3DDriver, compatibles_array);
 // https://www.kernel.org/doc/Documentation/devicetree/bindings/gpu/brcm,bcm-v3d.yaml
 ErrorOr<void> V3DDriver::probe(DeviceTree::Device const& device, StringView) const
 {
+    dmesgln("x");
     auto hub_registers_resource = TRY(device.get_resource(0));
+    dmesgln("V3D: hub_registers_resource {} (sz: {:#08x})", hub_registers_resource.paddr, hub_registers_resource.size);
     auto core_0_registers_resource = TRY(device.get_resource(1));
+    dmesgln("V3D: core_0_registers_resource {} (sz: {:#08x})", core_0_registers_resource.paddr, core_0_registers_resource.size);
 
     auto hub_interrupt_number = TRY(device.get_interrupt_number(0));
+    dmesgln("V3D: hub_interrupt_number {}", hub_interrupt_number);
 
     Optional<InterruptNumber> core_interrupt_number;
 

@@ -54,6 +54,8 @@ ErrorOr<NonnullRefPtr<Driver>> Driver::try_create(StringView driver_name)
 
     s_loaded_drivers.set(driver_name, driver->make_weak_ptr());
 
+    dbgln("Using {} for GL", driver_name);
+
     return driver;
 }
 

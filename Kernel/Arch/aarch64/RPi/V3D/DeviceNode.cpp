@@ -115,7 +115,7 @@ ErrorOr<GPUVirtualAddress> DeviceNode::allocate_buffer(Context& context, size_t 
 
     // We need to use AllocateNow since we don't want to (and can't even) lazily page in data for the GPU.
     // Page faults don't seem to be recoverable on the V3D.
-    auto vmobject = TRY(Memory::AnonymousVMObject::try_create_with_size(size, AllocationStrategy::AllocateNow));
+    auto vmobject = TRY(Memory::AnonymousVMObject::try_create_physically_contiguous_with_size(size, Memory::MemoryType::NonCacheable));
 
     auto region = TRY(GPUMemoryRegion::create_unplaced());
 
@@ -125,7 +125,8 @@ ErrorOr<GPUVirtualAddress> DeviceNode::allocate_buffer(Context& context, size_t 
 
     TRY(context.region_tree.place_anywhere(*region, Memory::RandomizeVirtualAddress::Yes, size, V3D_PAGE_SIZE));
 
-    auto gpu_vaddr = region->vaddr();
+    // auto gpu_vaddr = region->vaddr();
+    auto gpu_vaddr = GPUVirtualAddress { static_cast<u32>(vmobject->physical_pages()[0]->paddr().get()) };
 
     context.buffers.unchecked_append({
         .vmobject = move(vmobject),

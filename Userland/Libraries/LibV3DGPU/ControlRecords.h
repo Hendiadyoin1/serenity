@@ -12,6 +12,10 @@
 namespace V3DGPU::ControlRecord {
 
 // Reference for control records: https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/broadcom/cle/v3d_packet.xml
+enum class Version {
+    V42,
+    V71,
+};
 
 // For type="address"
 using Address = u32;
@@ -35,11 +39,42 @@ enum class DecimateMode : u32 {
     AllSamples = 3,
 };
 
+// <enum name="Internal Type" prefix="V3D_INTERNAL_TYPE">
+enum class InternalType : u32 {
+    // Note: reverse notation from the spec
+    i8 = 0,
+    ui8 = 1,
+    _8 = 2,
+    // unused: 3
+    i16 = 4,
+    ui16 = 5,
+    f16 = 6,
+    // unused: 7
+    i32 = 8,
+    ui32 = 9,
+    f32 = 10,
+};
+
+//  <enum name="Internal BPP" prefix="V3D_INTERNAL_BPP">
+enum class InternalBPP : u32 {
+    BPP32 = 0,
+    BPP64 = 1,
+    BPP128 = 2,
+};
+
 // <enum name="Internal Depth Type" prefix="V3D_INTERNAL_TYPE">
 enum class InternalDepthType : u32 {
     Depth32f = 0,
     Depth24 = 1,
     Depth16 = 2,
+};
+
+// <enum name="Render Target Clamp" prefix="V3D_RENDER_TARGET_CLAMP" max_ver="42">
+enum class RenderTargetClamp : u32 {
+    None = 0,
+    Norm = 1,
+    Pos = 2,
+    Int = 3,
 };
 
 // <enum name="Render Target Type Clamp" prefix="V3D_RENDER_TARGET_TYPE_CLAMP" min_ver="71">
@@ -140,6 +175,15 @@ struct ClearRenderTargets {
 };
 static_assert(AssertSize<ClearRenderTargets, 1>());
 
+// <packet code="25" shortname="clear" name="Clear Tile Buffers" cl="R" max_ver="42">
+struct ClearTileBuffers {
+    Opcode opcode = 25;
+    bool clear_all_render_targets : 1;
+    bool clear_z_stencil_buffers : 1;
+    u8 _ : 6;
+};
+static_assert(AssertSize<ClearTileBuffers, 1 + 1>());
+
 // <packet code="26" shortname="end_loads" name="End of Loads" cl="R"/>
 struct EndOfLoads {
     Opcode opcode = 26;
@@ -211,6 +255,7 @@ struct NumberOfLayers {
 static_assert(AssertSize<NumberOfLayers, 1 + 1>());
 
 // <packet code="120" name="Tile Binning Mode Cfg" min_ver="71">
+// <packet code="120" name="Tile Binning Mode Cfg"  max_ver="42">
 struct [[gnu::packed]] TileBinningModeCfg {
     // <field name="tile allocation initial block size" size="2" start="2" type="uint">
     enum class TileAllocationInitialBlockSize : u8 {
@@ -243,19 +288,34 @@ struct [[gnu::packed]] TileBinningModeCfg {
     };
 
     Opcode opcode = 120;
+    // 0
     u8 _reserved0 : 2;
     TileAllocationInitialBlockSize tile_allocation_initial_block_size : 2;
     TileAllocationBlockSize tile_allocation_block_size : 2;
     u8 _reserved1 : 2;
-    Log2TileWidth log2_tile_width : 3;
-    Log2TileHeight log2_tile_height : 3;
-    u32 _reserved2 : 18;
+    // 8
+    union {
+        struct [[gnu::packed]] {
+            Log2TileWidth log2_tile_width : 3;
+            Log2TileHeight log2_tile_height : 3;
+            u32 _reserved2 : 18;
+        } v71;
+        struct [[gnu::packed]] {
+            u8 number_render_targets_minus_one : 4;
+            InternalBPP max_bpp : 2;
+            bool multisample_mode_4x : 1;
+            bool double_buffer_in_non_ms_mode : 1;
+            // 16
+            u16 _;
+        } v42;
+    };
     u16 width_in_pixels_minus_one;
     u16 height_in_pixels_minus_one;
 };
 static_assert(AssertSize<TileBinningModeCfg, 1 + 8>());
 
 // <packet code="121" name="Tile Rendering Mode Cfg (Common)" cl="R" min_ver="71">
+// <packet code="121" name="Tile Rendering Mode Cfg (Common)" cl="R"  max_ver="42">
 struct [[gnu::packed]] TileRenderingModeCfgCommon {
     // <field name="Early-Z Test and Update Direction" size="1" start="45" type="uint">
     enum class EarlyZTestAndUpdateDirection : u8 {
@@ -280,35 +340,66 @@ struct [[gnu::packed]] TileRenderingModeCfgCommon {
     };
 
     Opcode opcode = 121;
-    u8 sub_id : 3 = 0;
-    u8 _reserved0 : 1;
+    u8 sub_id : 4 = 0; // Note: v71 only uses 3 bits
     u8 number_of_render_targets_minus_one : 4;
     u16 image_width_pixels;
     u16 image_height_pixels;
-    u8 _reserved1 : 2;
+    InternalBPP maximum_bpp_v42 : 2;
     bool multisample_mode_4x : 1;
     bool double_buffer_in_non_ms_mode : 1;
-    bool depth_buffer_disable : 1;
+    bool depth_buffer_disable_v71 : 1;
     EarlyZTestAndUpdateDirection early_z_test_and_update_direction : 1;
     bool early_z_disable : 1;
     InternalDepthType internal_depth_type : 4;
     bool early_depth_stencil_clear : 1;
-    Log2TileWidth log2_tile_width : 3;
-    Log2TileHeight log2_tile_height : 3;
+    Log2TileWidth log2_tile_width_v71 : 3;
+    Log2TileHeight log2_tile_height_v71 : 3;
     u8 pad : 6;
 };
 static_assert(AssertSize<TileRenderingModeCfgCommon, 1 + 8>());
 
 // <packet code="121" name="Tile Rendering Mode Cfg (ZS Clear Values)" cl="R" min_ver="71">
+// <packet code="121" name="Tile Rendering Mode Cfg (ZS Clear Values)" cl="R"  max_ver="42">
 struct [[gnu::packed]] TileRenderingModeCfgZSClearValues {
+    constexpr static u8 SUB_ID_71 = 1;
+    constexpr static u8 SUB_ID_42 = 2;
+    TileRenderingModeCfgZSClearValues(Version v)
+        : sub_id(v == Version::V71 ? SUB_ID_71 : SUB_ID_42)
+    {
+    }
     Opcode opcode = 121;
-    u8 sub_id : 4 = 1; // FIXME: Is this an error in v3d_packet.xml? The sub-id is 3 bits in other packets.
+    u8 sub_id : 4;
     u8 _reserved0 : 4;
     u8 stencil_clear_value;
     f32 z_clear_value;
     u16 unused;
 };
 static_assert(AssertSize<TileRenderingModeCfgZSClearValues, 1 + 8>());
+
+// <packet code="121" name="Tile Rendering Mode Cfg (Color)" cl="R"  max_ver="42">
+struct [[gnu::packed]] TileRenderingModeCfgColor {
+    Opcode opcode = 121;
+    u32 sub_id : 4 = 1;
+
+    InternalBPP render_target_1_bpp : 2;
+    InternalType render_target_1_type : 4;
+    RenderTargetClamp render_target_1_clamp : 2;
+
+    InternalBPP render_target_2_bpp : 2;
+    InternalType render_target_2_type : 4;
+    RenderTargetClamp render_target_2_clamp : 2;
+
+    InternalBPP render_target_3_bpp : 2;
+    InternalType render_target_3_type : 4;
+    RenderTargetClamp render_target_3_clamp : 2;
+
+    InternalBPP render_target_4_bpp : 2;
+    InternalType render_target_4_type : 4;
+    RenderTargetClamp render_target_4_clamp : 2;
+
+    u32 pad : 28;
+};
+static_assert(AssertSize<TileRenderingModeCfgColor, 1 + 8>());
 
 // <packet code="121" name="Tile Rendering Mode Cfg (Render Target Part1)" cl="R" min_ver="71">
 struct [[gnu::packed]] TileRenderingModeCfgRenderTargetPart1 {
@@ -318,7 +409,7 @@ struct [[gnu::packed]] TileRenderingModeCfgRenderTargetPart1 {
     u32 _reserved0 : 1;
     u32 base_address : 11;
     u32 stride_minus_one : 7;
-    u32 internal_bpp : 2;
+    InternalBPP internal_bpp : 2;
     RenderTargetTypeClamp internal_type_and_clamping : 5;
     u32 clear_color_low_bits;
 };

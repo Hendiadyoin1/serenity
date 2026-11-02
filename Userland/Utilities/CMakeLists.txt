@@ -1,4 +1,5 @@
 set(CMD_SOURCES_CPP
+    t.cpp
     abench.cpp
     aconv.cpp
     acpi.cpp
@@ -299,6 +300,7 @@ install(CODE "file(CREATE_LINK gzip ${CMAKE_INSTALL_PREFIX}/bin/gunzip SYMBOLIC)
 install(CODE "file(CREATE_LINK gzip ${CMAKE_INSTALL_PREFIX}/bin/zcat SYMBOLIC)")
 install(CODE "file(CREATE_LINK /usr/lib/Loader.so ${CMAKE_INSTALL_PREFIX}/bin/ldd SYMBOLIC)")
 
+target_link_libraries(t PRIVATE LibGUI LibGfx LibGL)
 target_link_libraries(abench PRIVATE LibAudio LibFileSystem)
 target_link_libraries(aconv PRIVATE LibAudio LibFileSystem)
 target_link_libraries(acpi PRIVATE LibACPI LibFileSystem LibMain)

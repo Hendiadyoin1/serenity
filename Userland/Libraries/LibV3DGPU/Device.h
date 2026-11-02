@@ -12,6 +12,7 @@
 #include <AK/NonnullRefPtr.h>
 #include <AK/Vector.h>
 #include <LibGPU/Device.h>
+#include <LibV3DGPU/ControlRecords.h>
 
 namespace V3DGPU {
 
@@ -69,7 +70,16 @@ private:
         ControlList control_list;
         ControlList tile_list;
     };
-    ErrorOr<RenderControlList> generate_render_control_list(u32 target_buffer_pitch, u32 target_buffer_address);
+    ErrorOr<RenderControlList> generate_render_control_list(u32 target_buffer_pitch, u32 target_buffer_address)
+    {
+        if (m_version == ControlRecord::Version::V71)
+            return generate_render_control_list_v71(target_buffer_pitch, target_buffer_address);
+        else
+            return generate_render_control_list_v42(target_buffer_pitch, target_buffer_address);
+    }
+
+    ErrorOr<RenderControlList> generate_render_control_list_v71(u32 target_buffer_pitch, u32 target_buffer_address);
+    ErrorOr<RenderControlList> generate_render_control_list_v42(u32 target_buffer_pitch, u32 target_buffer_address);
 
     ErrorOr<ControlList> generate_tile_list(u32 target_buffer_pitch, u32 target_buffer_address);
 
@@ -89,6 +99,8 @@ private:
 
     u32 m_clear_color { 0x00'00'00'00 };
     f32 m_clear_depth { 1.0f };
+
+    ControlRecord::Version m_version { ControlRecord::Version::V42 };
 
     struct RenderControlListState {
         // This struct contains all of the state that is "baked" into the render control list.

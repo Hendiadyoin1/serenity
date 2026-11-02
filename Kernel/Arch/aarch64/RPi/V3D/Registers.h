@@ -179,9 +179,10 @@ struct CoreRegisters {
 
     u32 miscellaneous_error_signals; // ERRSTAT
 
-    u8 _[0x50dc];
+    u8 _[0x30dc];
+    // RPI 5 (VC VII) u8 _[0x2000];
 };
-static_assert(AssertSize<CoreRegisters, 0x6000>());
+static_assert(AssertSize<CoreRegisters, 0x4000>());
 static_assert(offsetof(CoreRegisters, texture_cache_flush_start_addr) == 0x34);
 static_assert(offsetof(CoreRegisters, interrupt_status) == 0x50);
 static_assert(offsetof(CoreRegisters, control_list_executor.rendering_mode_flush_count) == 0x138);
