@@ -70,17 +70,7 @@ private:
         ControlList control_list;
         ControlList tile_list;
     };
-    ErrorOr<RenderControlList> generate_render_control_list(u32 target_buffer_pitch, u32 target_buffer_address)
-    {
-        if (m_version == ControlRecord::Version::V71)
-            return generate_render_control_list_v71(target_buffer_pitch, target_buffer_address);
-        else
-            return generate_render_control_list_v42(target_buffer_pitch, target_buffer_address);
-    }
-
-    ErrorOr<RenderControlList> generate_render_control_list_v71(u32 target_buffer_pitch, u32 target_buffer_address);
-    ErrorOr<RenderControlList> generate_render_control_list_v42(u32 target_buffer_pitch, u32 target_buffer_address);
-
+    ErrorOr<RenderControlList> generate_render_control_list(u32 target_buffer_pitch, u32 target_buffer_address);
     ErrorOr<ControlList> generate_tile_list(u32 target_buffer_pitch, u32 target_buffer_address);
 
     // This member should be before any Buffers (or anything containing Buffers, like ControlLists)

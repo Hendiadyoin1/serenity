@@ -121,10 +121,8 @@ ErrorOr<ControlList> Device::generate_tile_list(u32 target_buffer_pitch, u32 tar
     return control_list;
 }
 
-ErrorOr<Device::RenderControlList> Device::generate_render_control_list_v42(u32 target_buffer_pitch, u32 target_buffer_address)
+ErrorOr<Device::RenderControlList> Device::generate_render_control_list(u32 target_buffer_pitch, u32 target_buffer_address)
 {
-    // NOTE: Translated from the v7.1 verion from mesa
-    // FIXME: Large parts are the same, we should share them
     ControlList control_list;
 
     ControlRecord::TileRenderingModeCfgCommon tile_rendering_mode_cfg_common {};
@@ -133,147 +131,43 @@ ErrorOr<Device::RenderControlList> Device::generate_render_control_list_v42(u32 
     tile_rendering_mode_cfg_common.number_of_render_targets_minus_one = 1 - 1;
     tile_rendering_mode_cfg_common.image_width_pixels = m_framebuffer_size.width();
     tile_rendering_mode_cfg_common.image_height_pixels = m_framebuffer_size.height();
-    tile_rendering_mode_cfg_common.maximum_bpp_v42 = ControlRecord::InternalBPP::BPP32;
     tile_rendering_mode_cfg_common.multisample_mode_4x = false;
     tile_rendering_mode_cfg_common.double_buffer_in_non_ms_mode = false;
     tile_rendering_mode_cfg_common.early_z_test_and_update_direction = ControlRecord::TileRenderingModeCfgCommon::EarlyZTestAndUpdateDirection::LT_LE;
     tile_rendering_mode_cfg_common.early_z_disable = true;
     tile_rendering_mode_cfg_common.internal_depth_type = ControlRecord::InternalDepthType::Depth16;
     tile_rendering_mode_cfg_common.early_depth_stencil_clear = true;
+    if (m_version == ControlRecord::Version::V71) {
+        tile_rendering_mode_cfg_common.depth_buffer_disable_v71 = false;
+        tile_rendering_mode_cfg_common.log2_tile_width_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileWidth::Width64Pixels;
+        tile_rendering_mode_cfg_common.log2_tile_height_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileHeight::Height64Pixels;
+    } else {
+        tile_rendering_mode_cfg_common.maximum_bpp_v42 = ControlRecord::InternalBPP::BPP32;
+    }
     control_list.append(tile_rendering_mode_cfg_common);
 
-    ControlRecord::TileRenderingModeCfgColorPart1 clear_color {};
-    clear_color.clear_color_low = m_clear_color;
-    control_list.append(clear_color);
+    if (m_version == ControlRecord::Version::V71) {
+        ControlRecord::TileRenderingModeCfgRenderTargetPart1 tile_rendering_mode_cfg_render_target_part1 {};
+        tile_rendering_mode_cfg_render_target_part1.render_target_number = 0;
+        tile_rendering_mode_cfg_render_target_part1.base_address = 0;
+        tile_rendering_mode_cfg_render_target_part1.stride_minus_one = 32 - 1;
+        tile_rendering_mode_cfg_render_target_part1.internal_bpp = ControlRecord::InternalBPP::BPP32;
+        tile_rendering_mode_cfg_render_target_part1.internal_type_and_clamping = ControlRecord::RenderTargetTypeClamp::TypeClamp8;
+        tile_rendering_mode_cfg_render_target_part1.clear_color_low_bits = m_clear_color;
+        control_list.append(tile_rendering_mode_cfg_render_target_part1);
+    } else {
+        ControlRecord::TileRenderingModeCfgColorPart1 clear_color {};
+        clear_color.clear_color_low = m_clear_color;
+        control_list.append(clear_color);
 
-    ControlRecord::TileRenderingModeCfgColor tile_rendering_mode_cfg_color {};
-    tile_rendering_mode_cfg_color.render_target_1_bpp = ControlRecord::InternalBPP::BPP32;
-    tile_rendering_mode_cfg_color.render_target_1_clamp = ControlRecord::RenderTargetClamp::None;
-    tile_rendering_mode_cfg_color.render_target_1_type = ControlRecord::InternalType::_8;
-    control_list.append(tile_rendering_mode_cfg_color);
-
-    ControlRecord::TileRenderingModeCfgZSClearValues tile_rendering_mode_cfg_zs_clear_values { ControlRecord::Version::V42 };
-    tile_rendering_mode_cfg_zs_clear_values.z_clear_value = m_clear_depth;
-    tile_rendering_mode_cfg_zs_clear_values.stencil_clear_value = 0;
-    control_list.append(tile_rendering_mode_cfg_zs_clear_values);
-
-    ControlRecord::TileListInitialBlockSize tile_list_initial_block_size {};
-    static_assert(TILE_ALLOC_MEMORY_INITIAL_BLOCK_SIZE == 128);
-    tile_list_initial_block_size.size_of_first_block_in_chained_tile_lists = ControlRecord::TileListInitialBlockSize::SizeOfFirstBlockInChainedTileLists::Size128Bytes;
-    tile_list_initial_block_size.use_auto_chained_tile_lists = true;
-    control_list.append(tile_list_initial_block_size);
-
-    ControlRecord::MulticoreRenderingTileListSetBase multicore_rendering_tile_list_set_base {};
-    multicore_rendering_tile_list_set_base.tile_list_set_number = 0;
-    multicore_rendering_tile_list_set_base.address = m_tile_alloc_memory_buffer->gpu_virtual_address() >> 6u;
-    control_list.append(multicore_rendering_tile_list_set_base);
-
-    ControlRecord::MulticoreRenderingSupertileCfg multicore_rendering_supertile_cfg {};
-    multicore_rendering_supertile_cfg.supertile_width_in_tiles_minus_one = 1 - 1;
-    multicore_rendering_supertile_cfg.supertile_height_in_tiles_minus_one = 1 - 1;
-    multicore_rendering_supertile_cfg.total_frame_width_in_supertiles = ceil_div(m_framebuffer_size.width(), TILE_WIDTH);
-    multicore_rendering_supertile_cfg.total_frame_height_in_supertiles = ceil_div(m_framebuffer_size.height(), TILE_HEIGHT);
-    multicore_rendering_supertile_cfg.total_frame_width_in_tiles = ceil_div(m_framebuffer_size.width(), TILE_WIDTH);
-    multicore_rendering_supertile_cfg.total_frame_height_in_tiles = ceil_div(m_framebuffer_size.height(), TILE_HEIGHT);
-    multicore_rendering_supertile_cfg.multicore_enable = false;
-    multicore_rendering_supertile_cfg.supertile_raster_order = false;
-    multicore_rendering_supertile_cfg.number_of_bin_tile_lists_minus_one = 1 - 1;
-    control_list.append(multicore_rendering_supertile_cfg);
-
-    ControlRecord::TileCoordinates tile_coordinates {};
-    tile_coordinates.tile_column_number = 0;
-    tile_coordinates.tile_row_number = 0;
-    control_list.append(tile_coordinates);
-
-    ControlRecord::EndOfLoads end_loads {};
-    control_list.append(end_loads);
-
-    ControlRecord::StoreTileBufferGeneral store_tile_buffer_general {};
-    store_tile_buffer_general.buffer_to_store = ControlRecord::StoreTileBufferGeneral::BufferToStore::None;
-    store_tile_buffer_general.memory_format = ControlRecord::MemoryFormat::Raster;
-    store_tile_buffer_general.flip_y = false;
-    store_tile_buffer_general.dither_mode = ControlRecord::DitherMode::None;
-    store_tile_buffer_general.decimate_mode = ControlRecord::DecimateMode::Sample0;
-    store_tile_buffer_general.output_image_format = ControlRecord::OutputImageFormat::RGBA8;
-    store_tile_buffer_general.clear_buffer_being_stored = false;
-    store_tile_buffer_general.channel_reverse = false;
-    store_tile_buffer_general.r_b_swap = false;
-    store_tile_buffer_general.height_in_ub_or_stride = 0;
-    store_tile_buffer_general.height = 0;
-    store_tile_buffer_general.address = 0;
-    control_list.append(store_tile_buffer_general);
-
-    ControlRecord::ClearTileBuffers clear_tile_buffers {};
-    clear_tile_buffers.clear_all_render_targets = true;
-    clear_tile_buffers.clear_z_stencil_buffers = false;
-    control_list.append(clear_tile_buffers);
-
-    ControlRecord::EndOfTileMarker end_of_tile_marker {};
-    control_list.append(end_of_tile_marker);
-
-    // FIXME: Mesa seems to emit a second store here?
-
-    ControlRecord::FlushVCDCache flush_vcd_cache {};
-    control_list.append(flush_vcd_cache);
-
-    auto tile_list = TRY(generate_tile_list(target_buffer_pitch, target_buffer_address));
-
-    ControlRecord::StartAddressOfGenericTileList start_address_of_generic_tile_list {};
-    start_address_of_generic_tile_list.start = tile_list.buffer()->gpu_virtual_address();
-    start_address_of_generic_tile_list.end = tile_list.buffer()->gpu_virtual_address() + tile_list.data().size();
-    control_list.append(start_address_of_generic_tile_list);
-
-    for (int row_number_in_supertiles = 0; row_number_in_supertiles < ceil_div(m_framebuffer_size.height(), TILE_HEIGHT); row_number_in_supertiles++) {
-        for (int column_number_in_supertiles = 0; column_number_in_supertiles < ceil_div(m_framebuffer_size.width(), TILE_WIDTH); column_number_in_supertiles++) {
-            ControlRecord::SupertileCoordinates supertile_coordinates {};
-            supertile_coordinates.column_number_in_supertiles = column_number_in_supertiles;
-            supertile_coordinates.row_number_in_supertiles = row_number_in_supertiles;
-            control_list.append(supertile_coordinates);
-        }
+        ControlRecord::TileRenderingModeCfgColor tile_rendering_mode_cfg_color {};
+        tile_rendering_mode_cfg_color.render_target_1_bpp = ControlRecord::InternalBPP::BPP32;
+        tile_rendering_mode_cfg_color.render_target_1_clamp = ControlRecord::RenderTargetClamp::None;
+        tile_rendering_mode_cfg_color.render_target_1_type = ControlRecord::InternalType::_8;
+        control_list.append(tile_rendering_mode_cfg_color);
     }
 
-    ControlRecord::EndOfRendering end_of_rendering {};
-    control_list.append(end_of_rendering);
-
-    TRY(control_list.copy_to_gpu_buffer());
-
-    return RenderControlList {
-        .control_list = move(control_list),
-        .tile_list = move(tile_list),
-    };
-}
-
-ErrorOr<Device::RenderControlList> Device::generate_render_control_list_v71(u32 target_buffer_pitch, u32 target_buffer_address)
-{
-    ControlList control_list;
-
-    ControlRecord::TileRenderingModeCfgCommon tile_rendering_mode_cfg_common {};
-    static_assert(TILE_WIDTH == 64);
-    static_assert(TILE_HEIGHT == 64);
-    tile_rendering_mode_cfg_common.number_of_render_targets_minus_one = 1 - 1;
-    tile_rendering_mode_cfg_common.image_width_pixels = m_framebuffer_size.width();
-    tile_rendering_mode_cfg_common.image_height_pixels = m_framebuffer_size.height();
-    tile_rendering_mode_cfg_common.multisample_mode_4x = false;
-    tile_rendering_mode_cfg_common.double_buffer_in_non_ms_mode = false;
-    tile_rendering_mode_cfg_common.depth_buffer_disable_v71 = false;
-    tile_rendering_mode_cfg_common.early_z_test_and_update_direction = ControlRecord::TileRenderingModeCfgCommon::EarlyZTestAndUpdateDirection::LT_LE;
-    tile_rendering_mode_cfg_common.early_z_disable = false;
-    tile_rendering_mode_cfg_common.internal_depth_type = ControlRecord::InternalDepthType::Depth16;
-    tile_rendering_mode_cfg_common.early_depth_stencil_clear = true;
-    tile_rendering_mode_cfg_common.log2_tile_width_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileWidth::Width64Pixels;
-    tile_rendering_mode_cfg_common.log2_tile_height_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileHeight::Height64Pixels;
-    control_list.append(tile_rendering_mode_cfg_common);
-
-    ControlRecord::TileRenderingModeCfgRenderTargetPart1 tile_rendering_mode_cfg_render_target_part1 {};
-    tile_rendering_mode_cfg_render_target_part1.render_target_number = 0;
-    tile_rendering_mode_cfg_render_target_part1.base_address = 0;
-    tile_rendering_mode_cfg_render_target_part1.stride_minus_one = 32 - 1;
-    tile_rendering_mode_cfg_render_target_part1.internal_bpp = ControlRecord::InternalBPP::BPP32;
-    tile_rendering_mode_cfg_render_target_part1.internal_type_and_clamping = ControlRecord::RenderTargetTypeClamp::TypeClamp8;
-    tile_rendering_mode_cfg_render_target_part1.clear_color_low_bits = m_clear_color;
-    control_list.append(tile_rendering_mode_cfg_render_target_part1);
-
-    ControlRecord::TileRenderingModeCfgZSClearValues tile_rendering_mode_cfg_zs_clear_values { ControlRecord::Version::V71 };
+    ControlRecord::TileRenderingModeCfgZSClearValues tile_rendering_mode_cfg_zs_clear_values { m_version };
     tile_rendering_mode_cfg_zs_clear_values.z_clear_value = m_clear_depth;
     tile_rendering_mode_cfg_zs_clear_values.stencil_clear_value = 0;
     control_list.append(tile_rendering_mode_cfg_zs_clear_values);
@@ -324,8 +218,15 @@ ErrorOr<Device::RenderControlList> Device::generate_render_control_list_v71(u32 
     store_tile_buffer_general.address = 0;
     control_list.append(store_tile_buffer_general);
 
-    ControlRecord::ClearRenderTargets clear_render_targets {};
-    control_list.append(clear_render_targets);
+    if (m_version == ControlRecord::Version::V71) {
+        ControlRecord::ClearRenderTargets clear_render_targets {};
+        control_list.append(clear_render_targets);
+    } else {
+        ControlRecord::ClearTileBuffers clear_tile_buffers {};
+        clear_tile_buffers.clear_all_render_targets = true;
+        clear_tile_buffers.clear_z_stencil_buffers = false;
+        control_list.append(clear_tile_buffers);
+    }
 
     ControlRecord::EndOfTileMarker end_of_tile_marker {};
     control_list.append(end_of_tile_marker);
