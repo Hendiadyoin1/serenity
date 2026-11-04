@@ -15,8 +15,8 @@
 
 ErrorOr<int> serenity_main(Main::Arguments)
 {
-    static constexpr size_t WIDTH = 1280;
-    static constexpr size_t HEIGHT = 720;
+    static constexpr size_t WIDTH = 800;
+    static constexpr size_t HEIGHT = 480;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         warnln("Failed to initialize SDL: {}", SDL_GetError());
@@ -67,7 +67,7 @@ ErrorOr<int> serenity_main(Main::Arguments)
     auto framerate_timer = Core::ElapsedTimer::start_new();
 
     Core::EventLoop event_loop;
-    for (;;) {
+    for (int i = 0; i < 2; ++i) {
         SDL_Event event;
         if (SDL_PollEvent(&event)) {
             if (event.type == SDL_QUIT)
@@ -108,7 +108,6 @@ ErrorOr<int> serenity_main(Main::Arguments)
             warnln("Failed to update SDL texture: {}", SDL_GetError());
         }
 
-        SDL_RenderClear(renderer);
         SDL_RenderCopy(renderer, texture, NULL, NULL);
         SDL_RenderPresent(renderer);
 
