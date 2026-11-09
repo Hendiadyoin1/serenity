@@ -12,6 +12,10 @@
 namespace V3DGPU::ControlRecord {
 
 // Reference for control records: https://gitlab.freedesktop.org/mesa/mesa/-/blob/main/src/broadcom/cle/v3d_packet.xml
+enum class Version {
+    V71,
+    V42,
+};
 
 // For type="address"
 using Address = u32;
@@ -67,11 +71,42 @@ enum class DecimateMode : u32 {
     AllSamples = 3,
 };
 
+// <enum name="Internal Type" prefix="V3D_INTERNAL_TYPE">
+enum class InternalType : u32 {
+    // Note: reverse notation from the spec
+    i8 = 0,
+    ui8 = 1,
+    _8 = 2,
+    // unused: 3
+    i16 = 4,
+    ui16 = 5,
+    f16 = 6,
+    // unused: 7
+    i32 = 8,
+    ui32 = 9,
+    f32 = 10,
+};
+
+//  <enum name="Internal BPP" prefix="V3D_INTERNAL_BPP">
+enum class InternalBPP : u32 {
+    BPP32 = 0,
+    BPP64 = 1,
+    BPP128 = 2,
+};
+
 // <enum name="Internal Depth Type" prefix="V3D_INTERNAL_TYPE">
 enum class InternalDepthType : u32 {
     Depth32f = 0,
     Depth24 = 1,
     Depth16 = 2,
+};
+
+// <enum name="Render Target Clamp" prefix="V3D_RENDER_TARGET_CLAMP" max_ver="42">
+enum class RenderTargetClamp : u32 {
+    None = 0,
+    Norm = 1,
+    Pos = 2,
+    Int = 3,
 };
 
 // <enum name="Render Target Type Clamp" prefix="V3D_RENDER_TARGET_TYPE_CLAMP" min_ver="71">
@@ -178,6 +213,15 @@ struct ClearRenderTargets {
     Opcode opcode = 25;
 };
 static_assert(AssertSize<ClearRenderTargets, 1>());
+
+// <packet code="25" shortname="clear" name="Clear Tile Buffers" cl="R" max_ver="42">
+struct ClearTileBuffers {
+    Opcode opcode = 25;
+    bool clear_all_render_targets : 1;
+    bool clear_z_stencil_buffers : 1;
+    u8 _ : 6;
+};
+static_assert(AssertSize<ClearTileBuffers, 1 + 1>());
 
 // <packet code="26" shortname="end_loads" name="End of Loads" cl="R"/>
 struct EndOfLoads {
@@ -297,26 +341,32 @@ struct ZeroAllCentroidFlags {
 static_assert(AssertSize<ZeroAllCentroidFlags, 1>());
 
 // <packet code="96" name="Cfg Bits" min_ver="71">
+// <packet code="96" name="Cfg Bits" max_ver="42">
 struct CfgBits {
     Opcode opcode = 96;
     bool enable_forward_facing_primitive : 1;
     bool enable_reverse_facing_primitive : 1;
     bool clockwise_primitives : 1;
     bool enable_depth_offset : 1;
+    // Maybe bug in the packet definition:
+    //     Until ver42 this is 2 bits, but the only values defined are
+    //       0: Diamond exit, 1: Perp end caps
+    //     So it is effectively only one bit?
     u8 line_rasterization : 1;
-    bool depth_bounds_test_enable : 1;
+    bool depth_bounds_test_enable_v71 : 1;
     u8 rasterizer_oversample_mode : 2;
     u8 _reserved0 : 2;
-    bool z_clamp_mode : 1;
+    bool z_clamp_mode_v71 : 1;
     bool direct3d_wireframe_triangles_mode : 1;
     CompareFunction depth_test_function : 3;
     bool z_updates_enable : 1;
-    u8 _reserved1 : 2;
+    bool early_z_enable_v42 : 1;
+    bool early_z_updates_enable_v42 : 1;
     bool stencil_enable : 1;
     bool blend_enable : 1;
     bool direct3d_point_fill_mode : 1;
     bool direct3d_provoking_vertex : 1;
-    ZClipMode z_clipping_mode : 2;
+    ZClipMode z_clipping_mode_v71 : 2;
 };
 static_assert(AssertSize<CfgBits, 1 + 3>());
 
@@ -362,9 +412,16 @@ static_assert(AssertSize<ClipperZMinMaxClippingPlanes, 1 + 8>());
 
 // <packet shortname="clipper_xy" name="Clipper XY Scaling" code="110" cl="B" min_ver="71">
 struct [[gnu::packed]] ClipperXYScaling {
+    static constexpr f32 viewport_scale_v71 = 0.5f * 64.f;
+    static constexpr f32 viewport_scale_v42 = 0.5f * 256.f;
+    ClipperXYScaling(Version v, f32 viewport_x, f32 viewport_y)
+        : viewport_half_width_scaled(viewport_x * (v == Version::V71 ? viewport_scale_v71 : viewport_scale_v42))
+        , viewport_half_height_scaled(-viewport_y * (v == Version::V71 ? viewport_scale_v71 : viewport_scale_v42))
+    {
+    }
     Opcode opcode = 110;
-    f32 viewport_half_width_in_1_64th_of_pixel;
-    f32 viewport_half_height_in_1_64th_of_pixel;
+    f32 viewport_half_width_scaled;
+    f32 viewport_half_height_scaled;
 };
 static_assert(AssertSize<ClipperXYScaling, 1 + 8>());
 
@@ -384,6 +441,7 @@ struct NumberOfLayers {
 static_assert(AssertSize<NumberOfLayers, 1 + 1>());
 
 // <packet code="120" name="Tile Binning Mode Cfg" min_ver="71">
+// <packet code="120" name="Tile Binning Mode Cfg"  max_ver="42">
 struct [[gnu::packed]] TileBinningModeCfg {
     // <field name="tile allocation initial block size" size="2" start="2" type="uint">
     enum class TileAllocationInitialBlockSize : u8 {
@@ -420,15 +478,27 @@ struct [[gnu::packed]] TileBinningModeCfg {
     TileAllocationInitialBlockSize tile_allocation_initial_block_size : 2;
     TileAllocationBlockSize tile_allocation_block_size : 2;
     u8 _reserved1 : 2;
-    Log2TileWidth log2_tile_width : 3;
-    Log2TileHeight log2_tile_height : 3;
-    u32 _reserved2 : 18;
+    union {
+        struct [[gnu::packed]] {
+            Log2TileWidth log2_tile_width : 3;
+            Log2TileHeight log2_tile_height : 3;
+            u32 _reserved2 : 18;
+        } v71;
+        struct [[gnu::packed]] {
+            u8 number_render_targets_minus_one : 4;
+            InternalBPP max_bpp : 2;
+            bool multisample_mode_4x : 1;
+            bool double_buffer_in_non_ms_mode : 1;
+            u16 _;
+        } v42;
+    };
     u16 width_in_pixels_minus_one;
     u16 height_in_pixels_minus_one;
 };
 static_assert(AssertSize<TileBinningModeCfg, 1 + 8>());
 
 // <packet code="121" name="Tile Rendering Mode Cfg (Common)" cl="R" min_ver="71">
+// <packet code="121" name="Tile Rendering Mode Cfg (Common)" cl="R"  max_ver="42">
 struct [[gnu::packed]] TileRenderingModeCfgCommon {
     // <field name="Early-Z Test and Update Direction" size="1" start="45" type="uint">
     enum class EarlyZTestAndUpdateDirection : u8 {
@@ -453,35 +523,76 @@ struct [[gnu::packed]] TileRenderingModeCfgCommon {
     };
 
     Opcode opcode = 121;
-    u8 sub_id : 3 = 0;
-    u8 _reserved0 : 1;
+    u8 sub_id : 4 = 0; // Note: v71 only declares 3 bits here
     u8 number_of_render_targets_minus_one : 4;
     u16 image_width_pixels;
     u16 image_height_pixels;
-    u8 _reserved1 : 2;
+    InternalBPP maximum_bpp_v42 : 2;
     bool multisample_mode_4x : 1;
     bool double_buffer_in_non_ms_mode : 1;
-    bool depth_buffer_disable : 1;
+    bool depth_buffer_disable_v71 : 1;
     EarlyZTestAndUpdateDirection early_z_test_and_update_direction : 1;
     bool early_z_disable : 1;
     InternalDepthType internal_depth_type : 4;
     bool early_depth_stencil_clear : 1;
-    Log2TileWidth log2_tile_width : 3;
-    Log2TileHeight log2_tile_height : 3;
+    Log2TileWidth log2_tile_width_v71 : 3;
+    Log2TileHeight log2_tile_height_v71 : 3;
     u8 pad : 6;
 };
 static_assert(AssertSize<TileRenderingModeCfgCommon, 1 + 8>());
 
 // <packet code="121" name="Tile Rendering Mode Cfg (ZS Clear Values)" cl="R" min_ver="71">
+// <packet code="121" name="Tile Rendering Mode Cfg (ZS Clear Values)" cl="R"  max_ver="42">
 struct [[gnu::packed]] TileRenderingModeCfgZSClearValues {
+    constexpr static u8 SUB_ID_71 = 1;
+    constexpr static u8 SUB_ID_42 = 2;
+    TileRenderingModeCfgZSClearValues(Version v)
+        : sub_id(v == Version::V71 ? SUB_ID_71 : SUB_ID_42)
+    {
+    }
     Opcode opcode = 121;
-    u8 sub_id : 4 = 1; // FIXME: Is this an error in v3d_packet.xml? The sub-id is 3 bits in other packets.
+    u8 sub_id : 4;
     u8 _reserved0 : 4;
     u8 stencil_clear_value;
     f32 z_clear_value;
     u16 unused;
 };
 static_assert(AssertSize<TileRenderingModeCfgZSClearValues, 1 + 8>());
+
+// <packet code="121" name="Tile Rendering Mode Cfg (Clear Colors Part1)" cl="R"  max_ver="42">
+struct [[gnu::packed]] TileRenderingModeCfgColorPart1 {
+    Opcode opcode = 121;
+    u8 sub_id : 4 = 3;
+    u8 _ : 4;
+    u32 clear_color_low : 32;
+    u32 clear_color_next : 24;
+};
+static_assert(AssertSize<TileRenderingModeCfgColorPart1, 1 + 8>());
+
+// <packet code="121" name="Tile Rendering Mode Cfg (Color)" cl="R"  max_ver="42">
+struct [[gnu::packed]] TileRenderingModeCfgColor {
+    Opcode opcode = 121;
+    u32 sub_id : 4 = 1;
+
+    InternalBPP render_target_1_bpp : 2;
+    InternalType render_target_1_type : 4;
+    RenderTargetClamp render_target_1_clamp : 2;
+
+    InternalBPP render_target_2_bpp : 2;
+    InternalType render_target_2_type : 4;
+    RenderTargetClamp render_target_2_clamp : 2;
+
+    InternalBPP render_target_3_bpp : 2;
+    InternalType render_target_3_type : 4;
+    RenderTargetClamp render_target_3_clamp : 2;
+
+    InternalBPP render_target_4_bpp : 2;
+    InternalType render_target_4_type : 4;
+    RenderTargetClamp render_target_4_clamp : 2;
+
+    u32 pad : 28;
+};
+static_assert(AssertSize<TileRenderingModeCfgColor, 1 + 8>());
 
 // <packet code="121" name="Tile Rendering Mode Cfg (Render Target Part1)" cl="R" min_ver="71">
 struct [[gnu::packed]] TileRenderingModeCfgRenderTargetPart1 {
@@ -491,7 +602,7 @@ struct [[gnu::packed]] TileRenderingModeCfgRenderTargetPart1 {
     u32 _reserved0 : 1;
     u32 base_address : 11;
     u32 stride_minus_one : 7;
-    u32 internal_bpp : 2;
+    InternalBPP internal_bpp : 2;
     RenderTargetTypeClamp internal_type_and_clamping : 5;
     u32 clear_color_low_bits;
 };
@@ -566,7 +677,8 @@ struct GLShaderStateRecord {
     bool base_instance_id_read_by_vertex_shader : 1;
     bool fragment_shader_does_z_writes : 1;
     bool turn_off_early_z_test : 1;
-    u8 _reserved0 : 2;
+    bool coordinate_shader_has_separate_inout_vpm_blocks_v42 : 1;
+    bool vertex_shader_has_separate_inout_vpm_blocks_v42 : 1;
     bool fragment_shader_uses_real_pixel_centre_w_in_addition_to_centroid_w2 : 1;
     bool enable_sample_rate_shading : 1;
     bool any_shader_reads_hardware_written_primitive_id : 1;
@@ -575,7 +687,7 @@ struct GLShaderStateRecord {
     bool do_scoreboard_wait_on_first_thread_switch : 1;
     bool disable_implicit_point_line_varyings : 1;
     bool no_prim_pack : 1;
-    bool never_defer_fep_depth_writes : 1;
+    bool never_defer_fep_depth_writes_v71 : 1;
     u8 _reserved1 : 3;
     u8 number_of_varyings_in_fragment_shader;
     u8 coordinate_shader_output_vpm_segment_size : 4;
@@ -586,23 +698,21 @@ struct GLShaderStateRecord {
     u8 min_vertex_shader_output_segments_required_in_play_in_addition_to_vcm_cache_size : 4;
     u8 vertex_shader_input_vpm_segment_size : 4;
     u8 min_vertex_shader_input_segments_required_in_play_minus_one : 4;
-    bool fragment_shader_4_way_threadable : 1;
-    bool fragment_shader_start_in_final_thread_section : 1;
-    bool fragment_shader_propagate_nans : 1;
-    Address fragment_shader_code_address : 29;
-    Address fragment_shader_uniforms_address;
-    bool vertex_shader_4_way_threadable : 1;
-    bool vertex_shader_start_in_final_thread_section : 1;
-    bool vertex_shader_propagate_nans : 1;
-    Address vertex_shader_code_address : 29;
-    Address vertex_shader_uniforms_address;
-    bool coordinate_shader_4_way_threadable : 1;
-    bool coordinate_shader_start_in_final_thread_section : 1;
-    bool coordinate_shader_propagate_nans : 1;
-    Address coordinate_shader_code_address : 29;
-    Address coordinate_shader_uniforms_address;
+
+    // V42 has a Attribute Values pointer here
+    // V71 directly has the 3 Shader Info blocks
+    struct ShaderInfo {
+        // For fragment, vertex and coordinate shaders, in that order
+        bool four_way_threadable : 1;
+        bool start_in_final_thread_section : 1;
+        bool propagate_nans : 1;
+        Address code_address : 29;
+        Address uniforms_address;
+    };
 };
-static_assert(AssertSize<GLShaderStateRecord, 32>());
+static_assert(AssertSize<GLShaderStateRecord, 8>());
+static_assert(sizeof(GLShaderStateRecord) + 3 * sizeof(GLShaderStateRecord::ShaderInfo) == 32);
+static_assert(sizeof(GLShaderStateRecord) + sizeof(Address) + 3 * sizeof(GLShaderStateRecord::ShaderInfo) == 36);
 
 // <struct name="GL Shader State Attribute Record">
 struct GLShaderStateAttributeRecord {

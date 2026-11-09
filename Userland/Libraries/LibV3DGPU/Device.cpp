@@ -50,8 +50,8 @@ ErrorOr<ControlList> Device::generate_initial_binner_control_list()
     static_assert(TILE_HEIGHT == 64);
     tile_binning_mode_cfg.tile_allocation_initial_block_size = ControlRecord::TileBinningModeCfg::TileAllocationInitialBlockSize::Size128Bytes;
     tile_binning_mode_cfg.tile_allocation_block_size = ControlRecord::TileBinningModeCfg::TileAllocationBlockSize::Size64Bytes;
-    tile_binning_mode_cfg.log2_tile_width = ControlRecord::TileBinningModeCfg::Log2TileWidth::Width64Pixels;
-    tile_binning_mode_cfg.log2_tile_height = ControlRecord::TileBinningModeCfg::Log2TileHeight::Height64Pixels;
+    tile_binning_mode_cfg.v71.log2_tile_width = ControlRecord::TileBinningModeCfg::Log2TileWidth::Width64Pixels;
+    tile_binning_mode_cfg.v71.log2_tile_height = ControlRecord::TileBinningModeCfg::Log2TileHeight::Height64Pixels;
     tile_binning_mode_cfg.width_in_pixels_minus_one = m_framebuffer_size.width() - 1;
     tile_binning_mode_cfg.height_in_pixels_minus_one = m_framebuffer_size.height() - 1;
     control_list.append(tile_binning_mode_cfg);
@@ -69,9 +69,11 @@ ErrorOr<ControlList> Device::generate_initial_binner_control_list()
     clip_window.clip_window_height_in_pixels = m_framebuffer_size.height();
     control_list.append(clip_window);
 
-    ControlRecord::ClipperXYScaling clipper_xy_scaling {};
-    clipper_xy_scaling.viewport_half_width_in_1_64th_of_pixel = static_cast<f32>(m_framebuffer_size.width()) * 0.5f * 64.0f;
-    clipper_xy_scaling.viewport_half_height_in_1_64th_of_pixel = -static_cast<f32>(m_framebuffer_size.height()) * 0.5f * 64.0f;
+    ControlRecord::ClipperXYScaling clipper_xy_scaling {
+        ControlRecord::Version::V71,
+        static_cast<f32>(m_framebuffer_size.width()),
+        static_cast<f32>(m_framebuffer_size.height())
+    };
     control_list.append(clipper_xy_scaling);
 
     ControlRecord::ClipperZScaling clipper_z_scaling {};
@@ -137,54 +139,62 @@ ErrorOr<Device::ShaderStateRecord> Device::generate_shader_state_record(Vector<V
     memcpy(shaders_buffer_data + shaders_buffer_coordinate_shader_offset, COORDINATE_SHADER.data(), COORDINATE_SHADER_SIZE);
 
     // Shader State Record
-    ControlRecord::GLShaderStateRecord gl_shader_state_record = {
-        .point_size_in_shaded_vertex_data = false,
-        .enable_clipping = true,
-        .vertex_id_read_by_coordinate_shader = false,
-        .instance_id_read_by_coordinate_shader = false,
-        .base_instance_id_read_by_coordinate_shader = false,
-        .vertex_id_read_by_vertex_shader = false,
-        .instance_id_read_by_vertex_shader = false,
-        .base_instance_id_read_by_vertex_shader = false,
-        .fragment_shader_does_z_writes = false,
-        .turn_off_early_z_test = false,
-        ._reserved0 = 0,
-        .fragment_shader_uses_real_pixel_centre_w_in_addition_to_centroid_w2 = true,
-        .enable_sample_rate_shading = false,
-        .any_shader_reads_hardware_written_primitive_id = false,
-        .insert_primitive_id_as_first_varying_to_fragment_shader = false,
-        .turn_off_scoreboard = false,
-        .do_scoreboard_wait_on_first_thread_switch = false,
-        .disable_implicit_point_line_varyings = true,
-        .no_prim_pack = false,
-        .never_defer_fep_depth_writes = false,
-        ._reserved1 = 0,
-        .number_of_varyings_in_fragment_shader = NUMBER_OF_VARYINGS_IN_FRAGMENT_SHADER,
-        .coordinate_shader_output_vpm_segment_size = 1,
-        .min_coord_shader_output_segments_required_in_play_in_addition_to_vcm_cache_size = 0,
-        .coordinate_shader_input_vpm_segment_size = 0,
-        .min_coord_shader_input_segments_required_in_play_minus_one = 1,
-        .vertex_shader_output_vpm_segment_size = 1,
-        .min_vertex_shader_output_segments_required_in_play_in_addition_to_vcm_cache_size = 0,
-        .vertex_shader_input_vpm_segment_size = 0,
-        .min_vertex_shader_input_segments_required_in_play_minus_one = 1,
-        .fragment_shader_4_way_threadable = true,
-        .fragment_shader_start_in_final_thread_section = false,
-        .fragment_shader_propagate_nans = false,
-        .fragment_shader_code_address = static_cast<ControlRecord::Address>((shaders_buffer.gpu_virtual_address() + shaders_buffer_fragment_shader_offset) >> 3u),
-        .fragment_shader_uniforms_address = uniforms.fragment_shader_uniforms_address,
-        .vertex_shader_4_way_threadable = true,
-        .vertex_shader_start_in_final_thread_section = true,
-        .vertex_shader_propagate_nans = false,
-        .vertex_shader_code_address = static_cast<ControlRecord::Address>((shaders_buffer.gpu_virtual_address() + shaders_buffer_vertex_shader_offset) >> 3u),
-        .vertex_shader_uniforms_address = uniforms.vertex_shader_uniforms_address,
-        .coordinate_shader_4_way_threadable = true,
-        .coordinate_shader_start_in_final_thread_section = true,
-        .coordinate_shader_propagate_nans = false,
-        .coordinate_shader_code_address = static_cast<ControlRecord::Address>((shaders_buffer.gpu_virtual_address() + shaders_buffer_coordinate_shader_offset) >> 3u),
-        .coordinate_shader_uniforms_address = uniforms.coordinate_shader_uniforms_address,
-    };
+    ControlRecord::GLShaderStateRecord gl_shader_state_record {};
+    gl_shader_state_record.point_size_in_shaded_vertex_data = false;
+    gl_shader_state_record.enable_clipping = true;
+    gl_shader_state_record.vertex_id_read_by_coordinate_shader = false;
+    gl_shader_state_record.instance_id_read_by_coordinate_shader = false;
+    gl_shader_state_record.base_instance_id_read_by_coordinate_shader = false;
+    gl_shader_state_record.vertex_id_read_by_vertex_shader = false;
+    gl_shader_state_record.instance_id_read_by_vertex_shader = false;
+    gl_shader_state_record.base_instance_id_read_by_vertex_shader = false;
+    gl_shader_state_record.fragment_shader_does_z_writes = false;
+    gl_shader_state_record.turn_off_early_z_test = false;
+    gl_shader_state_record.fragment_shader_uses_real_pixel_centre_w_in_addition_to_centroid_w2 = true;
+    gl_shader_state_record.enable_sample_rate_shading = false;
+    gl_shader_state_record.any_shader_reads_hardware_written_primitive_id = false;
+    gl_shader_state_record.insert_primitive_id_as_first_varying_to_fragment_shader = false;
+    gl_shader_state_record.turn_off_scoreboard = false;
+    gl_shader_state_record.do_scoreboard_wait_on_first_thread_switch = false;
+    gl_shader_state_record.disable_implicit_point_line_varyings = true;
+    gl_shader_state_record.no_prim_pack = false;
+    gl_shader_state_record.number_of_varyings_in_fragment_shader = shader_set.number_of_varyings_in_fragment_shader;
+    gl_shader_state_record.coordinate_shader_output_vpm_segment_size = 1;
+    gl_shader_state_record.min_coord_shader_output_segments_required_in_play_in_addition_to_vcm_cache_size = 0;
+    gl_shader_state_record.coordinate_shader_input_vpm_segment_size = 0;
+    gl_shader_state_record.min_coord_shader_input_segments_required_in_play_minus_one = 1;
+    gl_shader_state_record.vertex_shader_output_vpm_segment_size = 1;
+    gl_shader_state_record.min_vertex_shader_output_segments_required_in_play_in_addition_to_vcm_cache_size = 0;
+    gl_shader_state_record.vertex_shader_input_vpm_segment_size = 0;
+    gl_shader_state_record.min_vertex_shader_input_segments_required_in_play_minus_one = 1;
     control_list.append(gl_shader_state_record);
+
+    ControlRecord::GLShaderStateRecord::ShaderInfo fragment_shader_info {
+        .four_way_threadable = true,
+        .start_in_final_thread_section = false,
+        .propagate_nans = false,
+        .code_address = static_cast<ControlRecord::Address>((shaders_buffer.gpu_virtual_address() + shaders_buffer_fragment_shader_offset) >> 3u),
+        .uniforms_address = uniforms.fragment_shader_uniforms_address,
+    };
+    control_list.append(fragment_shader_info);
+
+    ControlRecord::GLShaderStateRecord::ShaderInfo vertex_shader_info {
+        .four_way_threadable = true,
+        .start_in_final_thread_section = true,
+        .propagate_nans = false,
+        .code_address = static_cast<ControlRecord::Address>((shaders_buffer.gpu_virtual_address() + shaders_buffer_vertex_shader_offset) >> 3u),
+        .uniforms_address = uniforms.vertex_shader_uniforms_address,
+    };
+    control_list.append(vertex_shader_info);
+
+    ControlRecord::GLShaderStateRecord::ShaderInfo coordinate_shader_info {
+        .four_way_threadable = true,
+        .start_in_final_thread_section = false,
+        .propagate_nans = false,
+        .code_address = static_cast<ControlRecord::Address>((shaders_buffer.gpu_virtual_address() + shaders_buffer_coordinate_shader_offset) >> 3u),
+        .uniforms_address = uniforms.coordinate_shader_uniforms_address,
+    };
+    control_list.append(coordinate_shader_info);
 
     // Attributes
     u32 position_attribute_offset = offsetof(VertexData, position);
@@ -312,25 +322,25 @@ ErrorOr<Device::RenderControlList> Device::generate_render_control_list(u32 targ
     tile_rendering_mode_cfg_common.image_height_pixels = m_framebuffer_size.height();
     tile_rendering_mode_cfg_common.multisample_mode_4x = false;
     tile_rendering_mode_cfg_common.double_buffer_in_non_ms_mode = false;
-    tile_rendering_mode_cfg_common.depth_buffer_disable = false;
+    tile_rendering_mode_cfg_common.depth_buffer_disable_v71 = false;
     tile_rendering_mode_cfg_common.early_z_test_and_update_direction = ControlRecord::TileRenderingModeCfgCommon::EarlyZTestAndUpdateDirection::LT_LE;
     tile_rendering_mode_cfg_common.early_z_disable = false;
     tile_rendering_mode_cfg_common.internal_depth_type = ControlRecord::InternalDepthType::Depth16;
     tile_rendering_mode_cfg_common.early_depth_stencil_clear = true;
-    tile_rendering_mode_cfg_common.log2_tile_width = ControlRecord::TileRenderingModeCfgCommon::Log2TileWidth::Width64Pixels;
-    tile_rendering_mode_cfg_common.log2_tile_height = ControlRecord::TileRenderingModeCfgCommon::Log2TileHeight::Height64Pixels;
+    tile_rendering_mode_cfg_common.log2_tile_width_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileWidth::Width64Pixels;
+    tile_rendering_mode_cfg_common.log2_tile_height_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileHeight::Height64Pixels;
     control_list.append(tile_rendering_mode_cfg_common);
 
     ControlRecord::TileRenderingModeCfgRenderTargetPart1 tile_rendering_mode_cfg_render_target_part1 {};
     tile_rendering_mode_cfg_render_target_part1.render_target_number = 0;
     tile_rendering_mode_cfg_render_target_part1.base_address = 0;
     tile_rendering_mode_cfg_render_target_part1.stride_minus_one = 32 - 1;
-    tile_rendering_mode_cfg_render_target_part1.internal_bpp = 0;
+    tile_rendering_mode_cfg_render_target_part1.internal_bpp = ControlRecord::InternalBPP::BPP32;
     tile_rendering_mode_cfg_render_target_part1.internal_type_and_clamping = ControlRecord::RenderTargetTypeClamp::TypeClamp8;
     tile_rendering_mode_cfg_render_target_part1.clear_color_low_bits = m_clear_color;
     control_list.append(tile_rendering_mode_cfg_render_target_part1);
 
-    ControlRecord::TileRenderingModeCfgZSClearValues tile_rendering_mode_cfg_zs_clear_values {};
+    ControlRecord::TileRenderingModeCfgZSClearValues tile_rendering_mode_cfg_zs_clear_values { ControlRecord::Version::V71 };
     tile_rendering_mode_cfg_zs_clear_values.z_clear_value = m_clear_depth;
     tile_rendering_mode_cfg_zs_clear_values.stencil_clear_value = 0;
     control_list.append(tile_rendering_mode_cfg_zs_clear_values);
@@ -587,9 +597,9 @@ void Device::draw_primitives(GPU::PrimitiveType primitive_type, Vector<GPU::Vert
     cfg_bits.clockwise_primitives = true;
     cfg_bits.enable_depth_offset = false;
     cfg_bits.line_rasterization = 0;
-    cfg_bits.depth_bounds_test_enable = false;
+    cfg_bits.depth_bounds_test_enable_v71 = false;
     cfg_bits.rasterizer_oversample_mode = 0;
-    cfg_bits.z_clamp_mode = false;
+    cfg_bits.z_clamp_mode_v71 = false;
     cfg_bits.direct3d_wireframe_triangles_mode = false;
     cfg_bits.depth_test_function = determine_depth_test_function();
     cfg_bits.z_updates_enable = m_options.enable_depth_test && m_options.enable_depth_write;
@@ -597,7 +607,7 @@ void Device::draw_primitives(GPU::PrimitiveType primitive_type, Vector<GPU::Vert
     cfg_bits.blend_enable = false;
     cfg_bits.direct3d_point_fill_mode = false;
     cfg_bits.direct3d_provoking_vertex = false;
-    cfg_bits.z_clipping_mode = ControlRecord::ZClipMode::None;
+    cfg_bits.z_clipping_mode_v71 = ControlRecord::ZClipMode::None;
     m_binner_control_list.append(cfg_bits);
 
     ControlRecord::GLShaderState gl_shader_state {};
