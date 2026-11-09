@@ -12,6 +12,7 @@
 #include <AK/NonnullRefPtr.h>
 #include <AK/Vector.h>
 #include <LibGPU/Device.h>
+#include <LibV3DGPU/ControlRecords.h>
 
 namespace V3DGPU {
 
@@ -101,6 +102,7 @@ private:
     f32 m_clear_depth { 1.0f };
 
     bool m_color_buffer_clear_requested_this_frame { false };
+    ControlRecord::Version m_version = ControlRecord::Version::V71;
 
     struct RenderControlListState {
         // This struct contains all of the state that is "baked" into the render control list.

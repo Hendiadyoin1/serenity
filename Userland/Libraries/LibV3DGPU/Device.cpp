@@ -50,8 +50,18 @@ ErrorOr<ControlList> Device::generate_initial_binner_control_list()
     static_assert(TILE_HEIGHT == 64);
     tile_binning_mode_cfg.tile_allocation_initial_block_size = ControlRecord::TileBinningModeCfg::TileAllocationInitialBlockSize::Size128Bytes;
     tile_binning_mode_cfg.tile_allocation_block_size = ControlRecord::TileBinningModeCfg::TileAllocationBlockSize::Size64Bytes;
-    tile_binning_mode_cfg.v71.log2_tile_width = ControlRecord::TileBinningModeCfg::Log2TileWidth::Width64Pixels;
-    tile_binning_mode_cfg.v71.log2_tile_height = ControlRecord::TileBinningModeCfg::Log2TileHeight::Height64Pixels;
+
+    if (m_version == ControlRecord::Version::V71) {
+        tile_binning_mode_cfg.v71.log2_tile_width = ControlRecord::TileBinningModeCfg::Log2TileWidth::Width64Pixels;
+        tile_binning_mode_cfg.v71.log2_tile_height = ControlRecord::TileBinningModeCfg::Log2TileHeight::Height64Pixels;
+    } else {
+        // V42
+        tile_binning_mode_cfg.v42.number_render_targets_minus_one = 1 - 1;
+        tile_binning_mode_cfg.v42.max_bpp = ControlRecord::InternalBPP::BPP32;
+        tile_binning_mode_cfg.v42.multisample_mode_4x = false;
+        tile_binning_mode_cfg.v42.double_buffer_in_non_ms_mode = false;
+    }
+
     tile_binning_mode_cfg.width_in_pixels_minus_one = m_framebuffer_size.width() - 1;
     tile_binning_mode_cfg.height_in_pixels_minus_one = m_framebuffer_size.height() - 1;
     control_list.append(tile_binning_mode_cfg);
@@ -167,7 +177,20 @@ ErrorOr<Device::ShaderStateRecord> Device::generate_shader_state_record(Vector<V
     gl_shader_state_record.min_vertex_shader_output_segments_required_in_play_in_addition_to_vcm_cache_size = 0;
     gl_shader_state_record.vertex_shader_input_vpm_segment_size = 0;
     gl_shader_state_record.min_vertex_shader_input_segments_required_in_play_minus_one = 1;
+
+    if (m_version == ControlRecord::Version::V71) {
+        gl_shader_state_record.never_defer_fep_depth_writes_v71 = false;
+    } else {
+        gl_shader_state_record.coordinate_shader_has_separate_inout_vpm_blocks_v42 = false;
+        gl_shader_state_record.vertex_shader_has_separate_inout_vpm_blocks_v42 = false;
+    }
+
     control_list.append(gl_shader_state_record);
+
+    if (m_version == ControlRecord::Version::V42) {
+        // FIXME: Default attribute pointer
+        control_list.append<ControlRecord::Address>(0);
+    }
 
     ControlRecord::GLShaderStateRecord::ShaderInfo fragment_shader_info {
         .four_way_threadable = true,
@@ -296,8 +319,14 @@ ErrorOr<ControlList> Device::generate_tile_list(u32 target_buffer_pitch, u32 tar
     store_tile_buffer_general.address = target_buffer_address;
     control_list.append(store_tile_buffer_general);
 
-    ControlRecord::ClearRenderTargets clear_render_targets {};
-    control_list.append(clear_render_targets);
+    if (m_version == ControlRecord::Version::V71) {
+        ControlRecord::ClearRenderTargets clear_render_targets {};
+        control_list.append(clear_render_targets);
+    } else {
+        ControlRecord::ClearTileBuffers clear_tile_buffer {};
+        clear_tile_buffer.clear_all_render_targets = true;
+        control_list.append(clear_tile_buffer);
+    }
 
     ControlRecord::EndOfTileMarker end_of_tile_marker {};
     control_list.append(end_of_tile_marker);
@@ -322,25 +351,41 @@ ErrorOr<Device::RenderControlList> Device::generate_render_control_list(u32 targ
     tile_rendering_mode_cfg_common.image_height_pixels = m_framebuffer_size.height();
     tile_rendering_mode_cfg_common.multisample_mode_4x = false;
     tile_rendering_mode_cfg_common.double_buffer_in_non_ms_mode = false;
-    tile_rendering_mode_cfg_common.depth_buffer_disable_v71 = false;
     tile_rendering_mode_cfg_common.early_z_test_and_update_direction = ControlRecord::TileRenderingModeCfgCommon::EarlyZTestAndUpdateDirection::LT_LE;
     tile_rendering_mode_cfg_common.early_z_disable = false;
     tile_rendering_mode_cfg_common.internal_depth_type = ControlRecord::InternalDepthType::Depth16;
     tile_rendering_mode_cfg_common.early_depth_stencil_clear = true;
-    tile_rendering_mode_cfg_common.log2_tile_width_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileWidth::Width64Pixels;
-    tile_rendering_mode_cfg_common.log2_tile_height_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileHeight::Height64Pixels;
+    if (m_version == ControlRecord::Version::V71) {
+        tile_rendering_mode_cfg_common.depth_buffer_disable_v71 = false;
+        tile_rendering_mode_cfg_common.log2_tile_width_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileWidth::Width64Pixels;
+        tile_rendering_mode_cfg_common.log2_tile_height_v71 = ControlRecord::TileRenderingModeCfgCommon::Log2TileHeight::Height64Pixels;
+    } else {
+        tile_rendering_mode_cfg_common.maximum_bpp_v42 = ControlRecord::InternalBPP::BPP32;
+    }
     control_list.append(tile_rendering_mode_cfg_common);
 
-    ControlRecord::TileRenderingModeCfgRenderTargetPart1 tile_rendering_mode_cfg_render_target_part1 {};
-    tile_rendering_mode_cfg_render_target_part1.render_target_number = 0;
-    tile_rendering_mode_cfg_render_target_part1.base_address = 0;
-    tile_rendering_mode_cfg_render_target_part1.stride_minus_one = 32 - 1;
-    tile_rendering_mode_cfg_render_target_part1.internal_bpp = ControlRecord::InternalBPP::BPP32;
-    tile_rendering_mode_cfg_render_target_part1.internal_type_and_clamping = ControlRecord::RenderTargetTypeClamp::TypeClamp8;
-    tile_rendering_mode_cfg_render_target_part1.clear_color_low_bits = m_clear_color;
-    control_list.append(tile_rendering_mode_cfg_render_target_part1);
+    if (m_version == ControlRecord::Version::V71) {
+        ControlRecord::TileRenderingModeCfgRenderTargetPart1 tile_rendering_mode_cfg_render_target_part1 {};
+        tile_rendering_mode_cfg_render_target_part1.render_target_number = 0;
+        tile_rendering_mode_cfg_render_target_part1.base_address = 0;
+        tile_rendering_mode_cfg_render_target_part1.stride_minus_one = 32 - 1;
+        tile_rendering_mode_cfg_render_target_part1.internal_bpp = ControlRecord::InternalBPP::BPP32;
+        tile_rendering_mode_cfg_render_target_part1.internal_type_and_clamping = ControlRecord::RenderTargetTypeClamp::TypeClamp8;
+        tile_rendering_mode_cfg_render_target_part1.clear_color_low_bits = m_clear_color;
+        control_list.append(tile_rendering_mode_cfg_render_target_part1);
+    } else {
+        ControlRecord::TileRenderingModeCfgColorPart1 clear_color {};
+        clear_color.clear_color_low = m_clear_color;
+        control_list.append(clear_color);
 
-    ControlRecord::TileRenderingModeCfgZSClearValues tile_rendering_mode_cfg_zs_clear_values { ControlRecord::Version::V71 };
+        ControlRecord::TileRenderingModeCfgColor tile_rendering_mode_cfg_color {};
+        tile_rendering_mode_cfg_color.render_target_1_bpp = ControlRecord::InternalBPP::BPP32;
+        tile_rendering_mode_cfg_color.render_target_1_clamp = ControlRecord::RenderTargetClamp::None;
+        tile_rendering_mode_cfg_color.render_target_1_type = ControlRecord::InternalType::_8;
+        control_list.append(tile_rendering_mode_cfg_color);
+    }
+
+    ControlRecord::TileRenderingModeCfgZSClearValues tile_rendering_mode_cfg_zs_clear_values { m_version };
     tile_rendering_mode_cfg_zs_clear_values.z_clear_value = m_clear_depth;
     tile_rendering_mode_cfg_zs_clear_values.stencil_clear_value = 0;
     control_list.append(tile_rendering_mode_cfg_zs_clear_values);
@@ -391,8 +436,15 @@ ErrorOr<Device::RenderControlList> Device::generate_render_control_list(u32 targ
     store_tile_buffer_general.address = 0;
     control_list.append(store_tile_buffer_general);
 
-    ControlRecord::ClearRenderTargets clear_render_targets {};
-    control_list.append(clear_render_targets);
+    if (m_version == ControlRecord::Version::V71) {
+        ControlRecord::ClearRenderTargets clear_render_targets {};
+        control_list.append(clear_render_targets);
+    } else {
+        ControlRecord::ClearTileBuffers clear_tile_buffers {};
+        clear_tile_buffers.clear_all_render_targets = true;
+        clear_tile_buffers.clear_z_stencil_buffers = false;
+        control_list.append(clear_tile_buffers);
+    }
 
     ControlRecord::EndOfTileMarker end_of_tile_marker {};
     control_list.append(end_of_tile_marker);
@@ -597,9 +649,7 @@ void Device::draw_primitives(GPU::PrimitiveType primitive_type, Vector<GPU::Vert
     cfg_bits.clockwise_primitives = true;
     cfg_bits.enable_depth_offset = false;
     cfg_bits.line_rasterization = 0;
-    cfg_bits.depth_bounds_test_enable_v71 = false;
     cfg_bits.rasterizer_oversample_mode = 0;
-    cfg_bits.z_clamp_mode_v71 = false;
     cfg_bits.direct3d_wireframe_triangles_mode = false;
     cfg_bits.depth_test_function = determine_depth_test_function();
     cfg_bits.z_updates_enable = m_options.enable_depth_test && m_options.enable_depth_write;
@@ -607,7 +657,14 @@ void Device::draw_primitives(GPU::PrimitiveType primitive_type, Vector<GPU::Vert
     cfg_bits.blend_enable = false;
     cfg_bits.direct3d_point_fill_mode = false;
     cfg_bits.direct3d_provoking_vertex = false;
-    cfg_bits.z_clipping_mode_v71 = ControlRecord::ZClipMode::None;
+    if (m_version == ControlRecord::Version::V71) {
+        cfg_bits.depth_bounds_test_enable_v71 = false;
+        cfg_bits.z_clamp_mode_v71 = false;
+        cfg_bits.z_clipping_mode_v71 = ControlRecord::ZClipMode::None;
+    } else {
+        cfg_bits.early_z_enable_v42 = false;
+        cfg_bits.early_z_updates_enable_v42 = false;
+    }
     m_binner_control_list.append(cfg_bits);
 
     ControlRecord::GLShaderState gl_shader_state {};
