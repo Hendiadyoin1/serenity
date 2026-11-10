@@ -119,8 +119,10 @@ ErrorOr<Device::ShaderStateRecord> Device::generate_shader_state_record(Vector<V
 {
     ControlList control_list;
 
+    auto shader_set = shaders[(u8)m_version];
+
     // Uniforms
-    auto uniforms = TRY(generate_uniforms(m_framebuffer_size, model_view_projection_matrix));
+    auto uniforms = TRY(shader_set.generate_uniforms(m_framebuffer_size, model_view_projection_matrix));
 
     // Vertex data
     auto const vertex_data_size_in_bytes = vertex_array.size() * sizeof(vertex_array[0]);
@@ -131,22 +133,22 @@ ErrorOr<Device::ShaderStateRecord> Device::generate_shader_state_record(Vector<V
     memcpy(vertex_data_buffer_data, vertex_array.data(), vertex_data_size_in_bytes);
 
     // Shaders
-    static constexpr size_t FRAGMENT_SHADER_SIZE = FRAGMENT_SHADER.size() * sizeof(FRAGMENT_SHADER[0]);
-    static constexpr size_t VERTEX_SHADER_SIZE = VERTEX_SHADER.size() * sizeof(VERTEX_SHADER[0]);
-    static constexpr size_t COORDINATE_SHADER_SIZE = COORDINATE_SHADER.size() * sizeof(COORDINATE_SHADER[0]);
+    size_t const fragment_shader_size = shader_set.fragment_shader.size() * sizeof(shader_set.fragment_shader[0]);
+    size_t const vertex_shader_size = shader_set.vertex_shader.size() * sizeof(shader_set.vertex_shader[0]);
+    size_t const coordinate_shader_size = shader_set.coordinate_shader.size() * sizeof(shader_set.coordinate_shader[0]);
 
-    size_t const shaders_buffer_size = FRAGMENT_SHADER_SIZE + VERTEX_SHADER_SIZE + COORDINATE_SHADER_SIZE;
+    size_t const shaders_buffer_size = fragment_shader_size + vertex_shader_size + coordinate_shader_size;
 
     size_t const shaders_buffer_fragment_shader_offset = 0;
-    size_t const shaders_buffer_vertex_shader_offset = FRAGMENT_SHADER_SIZE;
-    size_t const shaders_buffer_coordinate_shader_offset = FRAGMENT_SHADER_SIZE + VERTEX_SHADER_SIZE;
+    size_t const shaders_buffer_vertex_shader_offset = fragment_shader_size;
+    size_t const shaders_buffer_coordinate_shader_offset = fragment_shader_size + vertex_shader_size;
 
     auto shaders_buffer = TRY(Buffer::create(align_up_to(shaders_buffer_size, V3D_PAGE_SIZE), "LibV3DGPU: Shaders Buffer"sv));
 
     u8* shaders_buffer_data = shaders_buffer.data().data();
-    memcpy(shaders_buffer_data + shaders_buffer_fragment_shader_offset, FRAGMENT_SHADER.data(), FRAGMENT_SHADER_SIZE);
-    memcpy(shaders_buffer_data + shaders_buffer_vertex_shader_offset, VERTEX_SHADER.data(), VERTEX_SHADER_SIZE);
-    memcpy(shaders_buffer_data + shaders_buffer_coordinate_shader_offset, COORDINATE_SHADER.data(), COORDINATE_SHADER_SIZE);
+    memcpy(shaders_buffer_data + shaders_buffer_fragment_shader_offset, shader_set.fragment_shader.data(), fragment_shader_size);
+    memcpy(shaders_buffer_data + shaders_buffer_vertex_shader_offset, shader_set.vertex_shader.data(), vertex_shader_size);
+    memcpy(shaders_buffer_data + shaders_buffer_coordinate_shader_offset, shader_set.coordinate_shader.data(), coordinate_shader_size);
 
     // Shader State Record
     ControlRecord::GLShaderStateRecord gl_shader_state_record {};
@@ -188,8 +190,7 @@ ErrorOr<Device::ShaderStateRecord> Device::generate_shader_state_record(Vector<V
     control_list.append(gl_shader_state_record);
 
     if (m_version == ControlRecord::Version::V42) {
-        // FIXME: Default attribute pointer
-        control_list.append<ControlRecord::Address>(0);
+        control_list.append<ControlRecord::Address>(uniforms.default_attributes_address_v42);
     }
 
     ControlRecord::GLShaderStateRecord::ShaderInfo fragment_shader_info {
